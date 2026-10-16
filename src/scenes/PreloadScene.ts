@@ -5,6 +5,7 @@ import { audio } from '../audio/Audio';
 import { lowSpecWanted, setLowSpec } from '../core/quality';
 import { save } from '../game/save';
 import { resolveLang, setLang, t } from '../i18n';
+import { initPlatform } from '../platform/app';
 
 /** Loading screen: draws the battle atlas, loads the save, then opens the lobby. */
 export class PreloadScene extends Phaser.Scene {
@@ -31,15 +32,18 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   create(): void {
-    void save.load().then(() => {
-      // The atlas draws pop-up words, so the language must be known first.
-      setLang(resolveLang(save.data.settings.lang));
-      setLowSpec(this.game, lowSpecWanted(save.data.settings.lowSpec, save.data.device.lowSpec));
-      buildAtlas(this);
-      audio.setEnabled(save.data.settings.sound);
-      // Sounds render in the background; the lobby does not wait for them.
-      void audio.preload();
-      this.scene.start(SceneKeys.Title);
-    });
+    // Inside the Android app the save lives in app storage, so that has to be set up before reading it.
+    void initPlatform(this.game)
+      .then(() => save.load())
+      .then(() => {
+        // The atlas draws pop-up words, so the language must be known first.
+        setLang(resolveLang(save.data.settings.lang));
+        setLowSpec(this.game, lowSpecWanted(save.data.settings.lowSpec, save.data.device.lowSpec));
+        buildAtlas(this);
+        audio.setEnabled(save.data.settings.sound);
+        // Sounds render in the background; the lobby does not wait for them.
+        void audio.preload();
+        this.scene.start(SceneKeys.Title);
+      });
   }
 }

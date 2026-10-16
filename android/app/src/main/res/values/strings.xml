@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">데드 마치</string>
+    <string name="title_activity_main">데드 마치</string>
+    <string name="package_name">com.joongyub.deadmarch</string>
+    <string name="custom_url_scheme">com.joongyub.deadmarch</string>
+</resources>

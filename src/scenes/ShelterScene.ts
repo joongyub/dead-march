@@ -374,6 +374,12 @@ export class ShelterScene extends BaseScene {
     this.tweens.add({ targets: this.modal, scale: 1, alpha: 1, duration: 160, ease: 'Back.Out' });
   }
 
+  override onBack(): boolean {
+    if (this.selected) this.closeModal();
+    else this.scene.start(SceneKeys.Lobby);
+    return true;
+  }
+
   private closeModal(): void {
     this.selected = null;
     this.modal.setVisible(false);

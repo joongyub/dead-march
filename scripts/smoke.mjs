@@ -201,6 +201,12 @@ async function main() {
       results.battleRunningAfterResume = await page.evaluate(() => window.__dm.game.scene.isActive('Battle'));
     }
 
+    // Back button (Escape on the web): battle -> pause menu -> back to the battle.
+    await page.keyboard.press('Escape');
+    results.backOpensPause = await settle(() => window.__dm.game.scene.isActive('Pause') && window.__dm.game.scene.isPaused('Battle'));
+    await page.keyboard.press('Escape');
+    results.backResumes = await settle(() => !window.__dm.game.scene.isActive('Pause') && window.__dm.game.scene.isActive('Battle'));
+
     // Play the rest of the stage at full speed (same rules, no rendering in between) → result screen.
     results.finished = await page.evaluate(() => {
       const battle = window.__battle;
@@ -339,6 +345,7 @@ async function main() {
     'lobby -> battle by tap': results.scenesAfterStart?.includes('Battle') ?? false,
     'background -> battle paused': results.battlePausedAfterHidden === true,
     'resume button -> battle running': results.battleRunningAfterResume === true,
+    'back button: battle -> pause -> battle': results.backOpensPause === true && results.backResumes === true,
     'stage played to the end -> result screen': results.scenesAtEnd?.includes('Result') ?? false,
     'stage 1 steering lesson, cleared by dragging': results.swipeLessonShown === true && results.swipeLearned === true,
     'first upgrade lesson: result -> shelter -> upgrade': results.resultShelterFirst === true && results.shelterLessonShown === true && results.shelterLessonDone === true,

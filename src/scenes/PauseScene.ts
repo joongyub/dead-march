@@ -24,10 +24,7 @@ export class PauseScene extends BaseScene {
     this.label = this.add
       .text(0, 0, t('pause.title'), { fontFamily: FONT_FAMILY, fontSize: '64px', color: Colors.text, fontStyle: 'bold' })
       .setOrigin(0.5);
-    this.resumeButton = new Button(this, 0, 0, t('pause.resume'), () => {
-      this.scene.stop();
-      this.scene.resume(SceneKeys.Battle);
-    });
+    this.resumeButton = new Button(this, 0, 0, t('pause.resume'), () => this.resume());
     this.retryButton = new Button(
       this,
       0,
@@ -74,5 +71,15 @@ export class PauseScene extends BaseScene {
     this.retryButton.setPosition(cx, top + 130);
     this.settingsButton.setPosition(cx, top + 260);
     this.lobbyButton.setPosition(cx, top + 390);
+  }
+
+  override onBack(): boolean {
+    this.resume();
+    return true;
+  }
+
+  private resume(): void {
+    this.scene.stop();
+    this.scene.resume(SceneKeys.Battle);
   }
 }

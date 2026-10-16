@@ -11,7 +11,9 @@
 - Phaser 3.90 (WebGL, 캔버스 대체) + TypeScript(strict) + Vite
 - 세로 화면. 설계 해상도 720×1280, `Scale.EXPAND`로 긴 화면은 높이가 늘어난다. 위치는 항상 `layout(width, height)`에서 현재 크기로 계산한다(`BaseScene`).
 - 배포: `main`에 머지되면 GitHub Actions가 GitHub Pages로 배포. PR마다 타입 검사, 규칙 검사, 빌드와 성능 검사(흐름 검사, 30판 누수 검사, CPU 4배 느린 조건 측정)가 돌고, 예산을 넘으면 실패한다.
-- 앱 포장(9단계부터): Capacitor. 그래서 경로는 상대 경로(`base: './'`)를 유지한다.
+- 안드로이드 앱: Capacitor 8 (`android/`, `capacitor.config.ts`, 앱 ID `com.joongyub.deadmarch`). 세로 고정, 전체 화면(`MainActivity`가 시스템 바를 숨김), 노치 여백은 앱이 넣는 `--safe-area-inset-*` CSS 변수로 받는다. 웹 빌드를 그대로 싣기 때문에 경로는 상대 경로(`base: './'`)를 유지한다.
+- 앱 빌드는 GitHub Actions(`android.yml`)에서만 한다. 이 작업 환경은 Google Maven 저장소에 접속하지 못한다. PR(앱 관련 파일이 바뀔 때)과 `main`은 디버그 APK, Run workflow에서 `release`를 고르면 업로드 키로 서명한 AAB. 버전 이름은 `package.json`, 버전 코드는 실행 번호.
+- 업로드 키(`*.jks`)와 비밀번호는 저장소에 넣지 않는다. GitHub 비밀값 `ANDROID_KEYSTORE_BASE64/PASSWORD`, `ANDROID_KEY_ALIAS/PASSWORD`로만 쓴다. 사용자 안내는 `docs/android.md`.
 
 ## 성능 예산
 
@@ -62,22 +64,25 @@ src/
   battle/              전투 화면 조각 (도로, 무리, 좀비 떼, 게이트, 바리케이드, 보스, 효과, HUD, 1스테이지 튜토리얼)
   i18n/                화면 문구 ko.ts / en.ts와 t('키'). 기기 언어로 자동 선택, 설정에서 바꿀 수 있음
   game/                저장(버전, 백업, 마이그레이션)과 보상/진행
-  platform/            브라우저/기기 대응 (URL 플래그, 저장소, 진동, 확대·스크롤 방지, 노치 여백)
+  platform/            브라우저/기기 대응 (URL 플래그, 저장소, 진동, 확대·스크롤 방지, 노치 여백, 뒤로 가기)
+                       app.ts는 앱 안에서만 native.ts(앱 저장소, 뒤로 가기 버튼, 스플래시)를 동적으로 불러온다
   debug/               성능 측정기와 오버레이 (?debug=1 전용)
   ui/                  공용 UI 위젯 (Button, IconButton, Toggle, Coach: 튜토리얼 손가락과 한 줄 글)
   scenes/              Boot → Preload → Title → Lobby ⇄ Shelter → Battle (+ Pause, Result, Settings 오버레이)
-public/                manifest.webmanifest, 아이콘, licenses.txt (그대로 복사됨)
-assets/                안드로이드 아이콘/스플래시 원본 (9단계 Capacitor용, 웹 빌드에는 안 들어감)
+public/                manifest.webmanifest, 아이콘, licenses.txt, privacy.html (그대로 복사됨)
+android/               Capacitor 안드로이드 프로젝트 (아이콘·스플래시는 npm run icons가 그림)
 scripts/smoke.mjs      헤드리스 휴대폰 검사
 scripts/perf.mjs       CPU 4·6배 느린 조건 측정 → docs/perf.md (--profile: 함수별 CPU 표)
 scripts/leak.mjs       전투 30판 메모리 누수 검사
-scripts/make-icons.mjs 앱 아이콘과 스플래시를 캔버스로 그려 PNG 저장
+scripts/make-icons.mjs 웹·안드로이드 아이콘과 스플래시를 캔버스로 그려 PNG 저장
+scripts/store-art.mjs  Play 스토어 스크린샷(한/영)과 그래픽 이미지 → artifacts/store/
 scripts/gen-levels.ts  스테이지 20개 생성 + 시뮬레이터로 난이도 맞춤 (levelCurve.ts의 목표 곡선)
 scripts/balance.ts     스테이지별 승률/남은 병력 표 → docs/balance.md
 scripts/gen-shelter.ts 피난처 건물 레벨 1~20 비용·효과 곡선 → src/data/shelter.json
 scripts/playtime.ts    가상 플레이어로 20스테이지까지 걸리는 플레이 시간 추정 → docs/playtime.md
 tests/                 브라우저 없이 도는 규칙 검사 (npm test, PR마다 실행)
-.github/workflows/     ci.yml (PR 검사), deploy.yml (Pages 배포)
+docs/                  android.md(앱 출시 안내), store-listing.md(스토어 문구), perf.md, balance.md, playtime.md
+.github/workflows/     ci.yml (PR 검사), deploy.yml (Pages 배포), android.yml (APK/AAB)
 ```
 
 전투 규칙(`src/sim/`)은 결정적이고 난수를 쓰지 않는다. 규칙이나 `units.json`/`zombies.json`을 바꾸면 `npm run gen-levels`로 스테이지를 다시 맞추고 `npm run balance`로 표를 갱신한다. 피난처 비용이나 전투 보상(`economy.json`)을 바꾸면 `npm run gen-shelter && npm run playtime`으로 플레이 시간을 다시 확인한다.
@@ -87,6 +92,8 @@ tests/                 브라우저 없이 도는 규칙 검사 (npm test, PR마
 - TypeScript strict, `any` 금지. 장면/텍스처 키는 `config.ts`의 상수를 쓴다.
 - 장면은 `BaseScene`을 상속하고 위치 계산은 `layout()`에만 둔다. 노치 여백은 `this.insets`.
 - 장면이 `game.events`나 `scale`에 등록한 리스너는 `SHUTDOWN`에서 해제한다.
+- 뒤로 가기(안드로이드 뒤로 버튼, 웹은 Escape)는 맨 위에서 돌고 있는 장면의 `onBack()`이 처리한다. 겹쳐 뜨는 창은 닫고, 전투는 일시정지, 결과·피난처는 로비로. `false`를 돌려주면(타이틀, 로비) 앱이 백그라운드로 간다.
+- 앱에서만 도는 코드는 `platform/native.ts`(와 거기서 부르는 파일)에 둔다. 웹 사용자는 그 코드를 내려받지 않는다.
 - 버튼은 손을 뗄 때 실행한다(`ui/Button.ts`). 터치 영역은 최소 80×80 게임 단위.
 - URL 플래그: `?debug=1` 성능 오버레이와 모든 스테이지 선택, `?stress=1` 병력 5,000 스트레스 스테이지, `?bench=N` 전투 장면에 움직이는 스프라이트 N개.
 - 화면 문구는 코드에 쓰지 않고 `src/i18n/ko.ts`에 키로 넣은 뒤 `en.ts`에도 같은 키를 넣는다(`npm test`가 빠진 키와 `{자리표시}` 차이를 잡는다). 스테이지·유닛·좀비·건물 이름은 한국어는 JSON, 영어는 `en.ts`의 표.
@@ -108,7 +115,9 @@ npm run leak         # 전투 30판 메모리 누수 검사 (빌드 후)
 npm run perf         # CPU 4·6배 느린 조건 측정 → docs/perf.md (빌드 후, --quick: 4배만)
 npm run gen-levels   # 스테이지 다시 생성 (약 10분)
 npm run balance      # 밸런스 표 docs/balance.md
-npm run icons        # 앱 아이콘/스플래시 다시 그리기
+npm run icons        # 웹·안드로이드 아이콘/스플래시 다시 그리기
+npm run store-art    # Play 스토어 그림 (빌드 후)
+npx cap sync android # 웹 빌드를 안드로이드 프로젝트로 복사 (Actions가 함)
 npm test             # 규칙 검사 (피난처, 방치 보상, 저장 복구, 언어 파일)
 npm run gen-shelter  # 피난처 비용·효과 데이터 다시 생성
 npm run playtime     # 플레이 시간 추정 docs/playtime.md

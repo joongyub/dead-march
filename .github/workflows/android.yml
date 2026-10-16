@@ -1,0 +1,85 @@
+name: Android
+
+# Builds the Android app from the web build (Capacitor).
+# - Every push to main and every PR that touches the app: a debug APK to install on a phone for testing.
+# - Run workflow with "release" checked (or a v* tag): also a signed AAB to upload to Google Play.
+#   That needs the upload key in the repository secrets (docs/android.md, step 2).
+on:
+  pull_request:
+    paths:
+      - android/**
+      - capacitor.config.ts
+      - package.json
+      - package-lock.json
+      - src/platform/**
+      - scripts/make-icons.mjs
+      - .github/workflows/android.yml
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Play 스토어에 올릴 서명된 AAB도 만들기
+        type: boolean
+        default: false
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      # Play needs a higher version code for every upload; the run number only goes up.
+      VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+      - name: Web build
+        run: npm run build
+      - name: Copy the web build into the app
+        run: npx cap sync android
+      - name: Debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dead-march-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Signed AAB for Google Play
+        if: (github.event_name == 'workflow_dispatch' && inputs.release) || startsWith(github.ref, 'refs/tags/v')
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ]; then
+            echo "::error::업로드 키 비밀값이 없습니다. docs/android.md의 2단계(업로드 키 등록)를 먼저 해 주세요."
+            exit 1
+          fi
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/upload-keystore.jks"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ANDROID_KEYSTORE_PATH"
+          (cd android && ./gradlew bundleRelease --no-daemon --stacktrace)
+          rm -f "$ANDROID_KEYSTORE_PATH"
+          echo "versionCode $VERSION_CODE, versionName $(node -p "require('./package.json').version")" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: (github.event_name == 'workflow_dispatch' && inputs.release) || startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: dead-march-release-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 90

@@ -6,6 +6,7 @@ import { quality, setLowSpec } from './core/quality';
 import { greedySide } from './sim/agent';
 import { resolveLang, setLang } from './i18n';
 import { flags } from './platform/flags';
+import { handleBack } from './platform/back';
 import { installMobileGuards } from './platform/mobile';
 import { BattleScene } from './scenes/BattleScene';
 import { BootScene } from './scenes/BootScene';
@@ -61,6 +62,10 @@ game.events.on(Phaser.Core.Events.HIDDEN, () => {
   void save.flush();
 });
 game.events.on(Phaser.Core.Events.VISIBLE, () => audio.resume());
+// Escape on the web does what the Android back button does in the app (platform/native.ts).
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !event.repeat) handleBack(game);
+});
 
 if (flags.debug) {
   // Loaded only with ?debug=1 so normal players never download or run the profiler.

@@ -7,3 +7,4 @@ artifacts/
 # Signing keys never go in the repository (docs/android.md).
 *.jks
 *.keystore
+android/app/google-services.json

@@ -6,6 +6,7 @@ import { lowSpecWanted, setLowSpec } from '../core/quality';
 import { save } from '../game/save';
 import { currentLang, resolveLang, t } from '../i18n';
 import { vibrate } from '../platform/haptics';
+import { services } from '../services';
 import { Button } from '../ui/Button';
 import { Toggle } from '../ui/Toggle';
 import { BaseScene } from './BaseScene';
@@ -127,6 +128,16 @@ export class SettingsScene extends BaseScene {
         setLowSpec(this.game, lowSpecWanted(v, save.data.device.lowSpec));
       },
     );
+    // Where ad consent is required by law (EU/UK), players must be able to change it later.
+    if (services.ads.privacyOptionsRequired()) {
+      const control = new Button(this, 0, 0, t('settings.open'), () => void services.ads.showPrivacyOptions(), {
+        width: 220,
+        height: 84,
+        fontSize: 30,
+        color: Colors.neutral,
+      });
+      this.rows.push({ ...rowParts('i_ad', t('settings.adPrivacy')), control, controlX: 160 });
+    }
     this.note = this.add
       .text(0, 0, '', { fontFamily: FONT_FAMILY, fontSize: '24px', color: Colors.accent })
       .setOrigin(0.5);

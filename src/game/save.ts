@@ -39,7 +39,7 @@ export interface SaveData {
   stats: { battles: number; wins: number; zombies: number };
   /** Idle rewards: when they were last collected, and the latest time the game saw (clock-rollback guard). */
   idle: { collectedAt: number; lastSeen: number };
-  /** Purchases and ad-free flag (stage 10). */
+  /** Ad-free flag and the non-consumable products bought (game/shop.ts). */
   shop: { noAds: boolean; owned: string[] };
   /** What the game learned about this device: battles ran slow, so 'auto' low-spec mode is on. */
   device: { lowSpec: boolean };
@@ -80,6 +80,7 @@ function normalize(raw: Record<string, unknown>): SaveData {
   merged.stats = { ...base.stats, ...(raw.stats as object) };
   merged.idle = { ...base.idle, ...(raw.idle as object) };
   merged.shop = { ...base.shop, ...(raw.shop as object) };
+  if (!Array.isArray(merged.shop.owned)) merged.shop.owned = [];
   merged.device = { ...base.device, ...(raw.device as object) };
   merged.best = { ...(raw.best as object) };
   merged.buildings = { ...(raw.buildings as object) };

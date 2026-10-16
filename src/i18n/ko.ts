@@ -81,6 +81,39 @@ export const ko = {
   'tut.shelterLobby': '피난처에서 건물을 강화하세요',
   'tut.shelterTap': '건물을 눌러 강화하세요',
   'tut.upgradeTap': '업그레이드를 누르세요',
+
+  'result.doubleAd': '광고 보고 보상 2배',
+  'result.doubleFree': '보상 2배 받기',
+  'result.adLoading': '광고 불러오는 중…',
+  'result.adMissed': '보상을 받지 못했어요. 다시 해 보세요',
+  'result.doubled': '보상 2배 받음',
+
+  'shop.title': '상점',
+  'shop.remove_ads.name': '광고 제거',
+  'shop.remove_ads.desc': '광고 없이 결과 화면에서 보상 2배를 바로 받아요',
+  'shop.supply_crate.name': '보급 상자',
+  'shop.supply_crate.desc': '식량 400, 고철 400, 연료 30',
+  'shop.owned': '구매함',
+  'shop.restore': '구매 복원',
+  'shop.waiting': '스토어와 연결하는 중…',
+  'shop.thanks': '{name} 구매 완료!',
+  'shop.cancelled': '구매를 취소했어요',
+  'shop.restored': '구매를 복원했어요',
+  'shop.nothingToRestore': '복원할 구매가 없어요',
+  'shop.unavailable': '스토어에 연결하지 못했어요',
+
+  'settings.adPrivacy': '광고 개인정보',
+  'settings.open': '열기',
+
+  'fake.adTitle': '광고 (테스트)',
+  'fake.adBody': '여기에 진짜 광고가 나옵니다\n{n}초',
+  'fake.adDone': '광고를 끝까지 봤어요',
+  'fake.skip': '건너뛰기',
+  'fake.claim': '보상 받기',
+  'fake.payTitle': '결제 (테스트)',
+  'fake.payBody': '{name}\n{price}\n\n웹 테스트용이라 돈이 나가지 않아요',
+  'fake.buy': '구매',
+  'fake.cancel': '취소',
 } as const;
 
 export type MessageKey = keyof typeof ko;

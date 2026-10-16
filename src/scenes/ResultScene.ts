@@ -3,11 +3,13 @@ import { ATLAS, formatCount, NUM_FONT } from '../art/atlas';
 import { audio } from '../audio/Audio';
 import { Colors, FONT_FAMILY, SceneKeys } from '../config';
 import { setFrameCap } from '../core/frameRate';
-import type { BattleOutcome } from '../game/progress';
+import type { BattleOutcome, Reward } from '../game/progress';
+import { grantAdBonus, hasNoAds } from '../game/shop';
 import { suggestedUpgrade, RESOURCE_IDS } from '../meta/shelter';
 import { save } from '../game/save';
 import { LEVELS } from '../sim/rules';
 import { t } from '../i18n';
+import { services } from '../services';
 import { RESOURCE_ICON } from '../ui/resourceIcons';
 import { Button } from '../ui/Button';
 import { Coach } from '../ui/Coach';
@@ -38,7 +40,14 @@ export class ResultScene extends BaseScene {
   private coach!: Coach;
   private shelterButton: Button | null = null;
   private result!: ResultData;
+  /** Reward count-up: from `countFrom` to `countTo` as `shown` goes 0 → 1. */
   private shown = 0;
+  private readonly countFrom = [0, 0, 0];
+  private readonly countTo = [0, 0, 0];
+  /** "Watch an ad, double the reward" (free after remove-ads); used once. */
+  private adButton: Button | null = null;
+  private adState: 'ready' | 'busy' | 'done' = 'ready';
+  private noteText = '';
 
   constructor() {
     super(SceneKeys.Result);
@@ -48,6 +57,8 @@ export class ResultScene extends BaseScene {
     setFrameCap(this.game, 30);
     this.result = data;
     this.shown = 0;
+    this.adButton = null;
+    this.adState = 'ready';
     this.rewardIcons = [];
     this.rewardTexts = [];
     this.buttons = [];
@@ -66,6 +77,8 @@ export class ResultScene extends BaseScene {
       .setOrigin(0.5, 0);
 
     const reward = data.outcome?.reward;
+    this.countFrom.fill(0);
+    if (reward) this.setCountTo(reward);
     for (const r of REWARD_ICONS) {
       this.rewardIcons.push(this.add.image(0, 0, ATLAS, r.icon).setTint(r.tint).setVisible(!!reward));
       this.rewardTexts.push(this.add.bitmapText(0, 0, NUM_FONT, '+0', 40).setOrigin(0, 0.5).setVisible(!!reward));
@@ -75,6 +88,7 @@ export class ResultScene extends BaseScene {
     if (data.outcome?.firstClear && data.stage < LEVELS.length) noteText = t('result.unlocked', { n: data.stage + 1 });
     else if (data.outcome?.firstClear) noteText = t('result.allClear');
     else if (!data.won && data.stage >= 8) noteText = t('result.upgradeHint');
+    this.noteText = noteText;
     this.note = this.add
       .text(0, 0, noteText, { fontFamily: FONT_FAMILY, fontSize: '28px', color: Colors.accent, fontStyle: 'bold' })
       .setOrigin(0.5);
@@ -100,6 +114,11 @@ export class ResultScene extends BaseScene {
       color: shelterFirst ? Colors.primary : Colors.neutral,
     });
     if (shelterFirst) this.buttons.push(shelter);
+    // Doubling the reward sits right under the reward (after the shelter while that lesson is on).
+    if (reward && data.stage > 0 && reward.food + reward.scrap + reward.fuel > 0) {
+      this.adButton = new Button(this, 0, 0, this.adLabel(), () => void this.doubleReward(), { width: 460, color: 0xb8862b, fontSize: 36 });
+      this.buttons.push(this.adButton);
+    }
     if (nextButton) this.buttons.push(nextButton);
     this.buttons.push(retry);
     if (data.stage > 0 && !shelterFirst) this.buttons.push(shelter);
@@ -129,8 +148,47 @@ export class ResultScene extends BaseScene {
     if (this.shown === 0) audio.play('coin');
     this.shown = Math.min(1, this.shown + delta / 600);
     if (this.shown >= 1) audio.play('coin', 1, 500);
-    const values = [reward.food, reward.scrap, reward.fuel];
-    for (let i = 0; i < 3; i++) this.rewardTexts[i].setText(`+${Math.round(values[i] * this.shown)}`);
+    for (let i = 0; i < 3; i++) {
+      this.rewardTexts[i].setText(`+${Math.round(this.countFrom[i] + (this.countTo[i] - this.countFrom[i]) * this.shown)}`);
+    }
+  }
+
+  private setCountTo(r: Reward): void {
+    this.countTo[0] = r.food;
+    this.countTo[1] = r.scrap;
+    this.countTo[2] = r.fuel;
+  }
+
+  private adLabel(): string {
+    return hasNoAds() ? t('result.doubleFree') : t('result.doubleAd');
+  }
+
+  private async doubleReward(): Promise<void> {
+    const reward = this.result.outcome?.reward;
+    if (!reward || this.adState !== 'ready' || !this.adButton) return;
+    this.adState = 'busy';
+    const free = hasNoAds();
+    if (!free) this.adButton.setLabel(t('result.adLoading'));
+    const watched = free || (await services.ads.showRewarded('result_double').catch(() => false));
+    if (!watched) {
+      this.adState = 'ready';
+      if (this.scene.isActive()) {
+        this.adButton.setLabel(this.adLabel());
+        this.note.setText(t('result.adMissed'));
+      }
+      return;
+    }
+    // Granted even if the screen changed meanwhile: the player did watch the ad.
+    const bonus = grantAdBonus(reward);
+    services.analytics.log('ad_reward', { placement: 'result_double', free });
+    this.adState = 'done';
+    if (!this.scene.isActive()) return;
+    this.adButton.setLabel(t('result.doubled')).setAlpha(0.55);
+    this.note.setText(this.noteText);
+    // Count up again from the first reward to the doubled one.
+    for (let i = 0; i < 3; i++) this.countFrom[i] = this.countTo[i];
+    this.setCountTo({ food: reward.food + bonus.food, scrap: reward.scrap + bonus.scrap, fuel: reward.fuel + bonus.fuel });
+    this.shown = 0;
   }
 
   protected layout(width: number, height: number): void {

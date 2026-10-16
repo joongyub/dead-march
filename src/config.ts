@@ -19,6 +19,7 @@ export const SceneKeys = {
   Result: 'Result',
   Settings: 'Settings',
   Shelter: 'Shelter',
+  Shop: 'Shop',
 } as const;
 
 export const TextureKeys = {

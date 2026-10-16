@@ -1,0 +1,17 @@
+{
+  "adRewardMultiplier": 2,
+  "products": [
+    {
+      "id": "remove_ads",
+      "type": "nonConsumable",
+      "webPrice": "₩3,900",
+      "grant": { "noAds": true }
+    },
+    {
+      "id": "supply_crate",
+      "type": "consumable",
+      "webPrice": "₩1,200",
+      "grant": { "food": 400, "scrap": 400, "fuel": 30 }
+    }
+  ]
+}

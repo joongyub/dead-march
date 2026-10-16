@@ -18,6 +18,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode appVersionCode
         versionName packageJson.version
+        // Real AdMob app ID only for store builds (ADMOB_APP_ID); otherwise Google's test app ID.
+        manifestPlaceholders = [admobAppId: System.getenv('ADMOB_APP_ID') ?: 'ca-app-pub-3940256099942544~3347511713']
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

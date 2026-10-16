@@ -17,6 +17,7 @@ import { setFrameCap } from '../core/frameRate';
 import { FixedTimestep } from '../core/FixedTimestep';
 import { lowSpecWanted, quality, setLowSpec, SlowFrameDetector, viewHeight, viewWidth } from '../core/quality';
 import { recordBattle } from '../game/progress';
+import { services } from '../services';
 import { stageName, t, zombieName } from '../i18n';
 import { shelterModifiers } from '../meta/shelter';
 import { save } from '../game/save';
@@ -101,6 +102,7 @@ export class BattleScene extends BaseScene {
     // The stress test measures raw cost, so it ignores shelter upgrades.
     const modifiers = data.modifiers ?? (this.stress ? undefined : shelterModifiers(save.data.buildings));
     this.sim = new BattleSim(this.level, RULES, modifiers);
+    if (!this.stress) services.analytics.log('stage_start', { stage: this.level.id });
     this.timestep.reset();
     this.prevDistance = 0;
     this.prevCrowdX = this.sim.crowdX;
@@ -477,6 +479,14 @@ export class BattleScene extends BaseScene {
 
   private finish(): void {
     const outcome = this.stress ? null : recordBattle(this.sim);
+    if (!this.stress) {
+      services.analytics.log('stage_end', {
+        stage: this.level.id,
+        won: this.sim.phase === 'won',
+        seconds: Math.round(this.sim.stats.time),
+        power: Math.round(this.sim.army.power),
+      });
+    }
     this.tutorial.hide();
     this.scene.pause();
     this.scene.launch(SceneKeys.Result, {

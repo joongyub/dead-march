@@ -23,3 +23,24 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+안드로이드 앱에만 들어가는 것
+------------------------------
+
+Capacitor 8 (@capacitor/core, android, app, preferences, splash-screen) — https://capacitorjs.com
+Copyright (c) 2017-present Drifty Co. — The MIT License (위 Phaser와 같은 조건)
+
+@capacitor-community/admob 8.1.0 — https://github.com/capacitor-community/admob
+Copyright (c) 2021 Capacitor Community — The MIT License (위와 같은 조건)
+
+@capgo/native-purchases 8.8.1 — https://github.com/Cap-go/capacitor-native-purchases
+Mozilla Public License 2.0 (https://mozilla.org/MPL/2.0/). 수정하지 않고 사용했으며 소스는 위 주소에 있습니다.
+
+@capacitor-firebase/analytics 8.5.2 — https://github.com/capawesome-team/capacitor-firebase
+Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+
+AndroidX 라이브러리 — Apache License 2.0
+
+Google Mobile Ads SDK, User Messaging Platform, Google Play 결제 라이브러리, Firebase SDK는
+Google의 서비스 약관을 따릅니다 (https://developers.google.com/terms).

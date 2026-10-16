@@ -39,6 +39,7 @@ import {
 } from '../meta/shelter';
 import { vibrate } from '../platform/haptics';
 import { LEVELS } from '../sim/rules';
+import { services } from '../services';
 import { Button } from '../ui/Button';
 import { Coach } from '../ui/Coach';
 import { IconButton } from '../ui/IconButton';
@@ -427,6 +428,7 @@ export class ShelterScene extends BaseScene {
     }
     save.data.tutorial.shelter = true;
     save.commit();
+    services.analytics.log('upgrade', { building: id, level: levelOf(save.data.buildings, id) });
     audio.play('upgrade');
     vibrate(30);
     const view = this.views.find((v) => v.id === id)!;

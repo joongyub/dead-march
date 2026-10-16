@@ -232,6 +232,16 @@ async function main() {
       return r.buttons[0] === r.shelterButton && r.coach.visible;
     });
 
+    // Rewarded ad (the web's pretend ad): watched to the end, the battle reward is paid a second time.
+    results.adBefore = await page.evaluate(() => ({ ...window.__dm.save.data.resources }));
+    results.adReward = await page.evaluate(() => window.__dm.game.scene.getScene('Result').result.outcome.reward);
+    await tapButton('Result', 'adButton');
+    await page.waitForSelector('[data-fake=primary]', { timeout: 10000 }).catch(() => {});
+    await page.screenshot({ path: `${OUT}/4b-fake-ad.png` });
+    await page.click('[data-fake=primary]').catch(() => {});
+    results.adLogged = await settle(() => window.__dm.events.some((e) => e.event === 'ad_reward'));
+    results.adAfter = await page.evaluate(() => ({ ...window.__dm.save.data.resources }));
+
     // Shelter: go there from the result screen with resources in hand, upgrade through the upgrade window.
     await page.evaluate(() => {
       const { save } = window.__dm;
@@ -270,6 +280,26 @@ async function main() {
     await page.waitForFunction(() => window.__dm.game.scene.isActive('Lobby'), null, { timeout: 10000 });
     await sleep(600);
     results.switches = await page.evaluate(() => window.__switches);
+
+    // Shop: buy a supply crate through the pretend checkout, then the back button closes the shop.
+    await tapButton('Lobby', 'shopButton');
+    results.shopOpened = await settle(() => window.__dm.game.scene.isActive('Shop'));
+    await sleep(500);
+    const foodBeforeCrate = await page.evaluate(() => window.__dm.save.data.resources.food);
+    const cratePos = await page.evaluate(() => {
+      const row = window.__dm.game.scene.getScene('Shop').rows.find((r) => r.id === 'supply_crate');
+      return { x: row.buy.x, y: row.buy.y };
+    });
+    await tapGame(cratePos.x, cratePos.y);
+    await page.waitForSelector('[data-fake=primary]', { timeout: 10000 }).catch(() => {});
+    await page.screenshot({ path: `${OUT}/9-shop-checkout.png` });
+    await page.click('[data-fake=primary]').catch(() => {});
+    await page.waitForFunction((before) => window.__dm.save.data.resources.food !== before, foodBeforeCrate, { timeout: 5000 }).catch(() => {});
+    await sleep(300);
+    await page.screenshot({ path: `${OUT}/9b-shop.png` });
+    results.crateFood = (await page.evaluate(() => window.__dm.save.data.resources.food)) - foodBeforeCrate;
+    await page.keyboard.press('Escape');
+    results.shopClosedByBack = await settle(() => !window.__dm.game.scene.isActive('Shop') && window.__dm.game.scene.isActive('Lobby'));
 
     // A corrupted main save comes back from the backup instead of starting over.
     await page.evaluate(async () => {
@@ -350,6 +380,8 @@ async function main() {
     'stage 1 steering lesson, cleared by dragging': results.swipeLessonShown === true && results.swipeLearned === true,
     'first upgrade lesson: result -> shelter -> upgrade': results.resultShelterFirst === true && results.shelterLessonShown === true && results.shelterLessonDone === true,
     'shelter upgrade raises the wall': results.wallAfter === results.wallBefore + 1,
+    'rewarded ad pays the battle reward again': !!results.adReward && ['food', 'scrap', 'fuel'].every((r) => results.adAfter?.[r] === results.adBefore[r] + results.adReward[r]) && results.adLogged === true,
+    'shop: supply crate bought, back button closes the shop': results.shopOpened === true && results.crateFood === 400 && results.shopClosedByBack === true,
     'corrupted save restored from backup': results.recovered?.recovered === true && results.recovered.wall === results.wallAfter && results.recovered.unlocked >= 2,
     [`scene switch work + 160ms fade <= 300ms (slowest work ${slowestSwitch}ms)`]: slowestSwitch + 160 <= 300,
     'logic <= 4ms (stress, 5000+ army)': (results.stress?.summary.logicMsAvg ?? Infinity) <= 4,

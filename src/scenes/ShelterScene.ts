@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ATLAS, formatCount, NUM_FONT } from '../art/atlas';
+import { refreshCanvasTexture } from '../art/canvasTexture';
 import {
   BUILDING_SPOTS,
   buildingOrigin,
@@ -16,10 +17,11 @@ import { audio } from '../audio/Audio';
 import { Colors, DESIGN_HEIGHT, DESIGN_WIDTH, FONT_FAMILY, SceneKeys } from '../config';
 import { setFrameCap } from '../core/frameRate';
 import { save } from '../game/save';
+import { buildingDesc, buildingName, resourceName, t } from '../i18n';
 import {
-  building,
   BUILDING_IDS,
   canAfford,
+  suggestedUpgrade,
   collectIdle,
   effectAt,
   guardClock,
@@ -37,26 +39,27 @@ import {
 import { vibrate } from '../platform/haptics';
 import { LEVELS } from '../sim/rules';
 import { Button } from '../ui/Button';
+import { Coach } from '../ui/Coach';
 import { IconButton } from '../ui/IconButton';
 import { RESOURCE_ICON } from '../ui/resourceIcons';
 import { BaseScene } from './BaseScene';
 
 /** Draw order: buildings and people sort by their y (0…~1800); everything below sits above them. */
-const D = { labels: 5000, bubble: 5100, hud: 5200, float: 5500, modalDim: 6000, modal: 6001 } as const;
+const D = { labels: 5000, bubble: 5100, hud: 5200, float: 5500, modalDim: 6000, modal: 6001, coach: 6100 } as const;
 
 /** One line describing a level's effect, for the upgrade window. */
 export function effectText(id: BuildingId, e: BuildingEffect): string {
   switch (id) {
     case 'wall':
-      return `시작 생존자 +${e.startBonus ?? 0}`;
+      return t('effect.wall', { n: e.startBonus ?? 0 });
     case 'armory':
-      return `사격 피해 +${Math.round(((e.dpsMultiplier ?? 1) - 1) * 100)}%`;
+      return t('effect.armory', { n: Math.round(((e.dpsMultiplier ?? 1) - 1) * 100) });
     case 'garage':
-      return `합체 덤 +${Math.round((e.mergeBonus ?? 0) * 100)}%`;
+      return t('effect.garage', { n: Math.round((e.mergeBonus ?? 0) * 100) });
     case 'farm':
-      return `식량 시간당 ${e.foodPerHour ?? 0}`;
+      return t('effect.farm', { n: e.foodPerHour ?? 0 });
     case 'radio':
-      return `시간당 고철 ${e.scrapPerHour ?? 0}, 연료 ${e.fuelPerHour ?? 0}`;
+      return t('effect.radio', { s: e.scrapPerHour ?? 0, f: e.fuelPerHour ?? 0 });
   }
 }
 
@@ -106,6 +109,8 @@ export class ShelterScene extends BaseScene {
   private modalButton!: Button;
   private modalMax!: Phaser.GameObjects.Text;
   private selected: BuildingId | null = null;
+  /** First-upgrade lesson: finger on a building, then on the upgrade button. */
+  private coach!: Coach;
 
   private originY = 0;
   private clock = 0;
@@ -157,7 +162,7 @@ export class ShelterScene extends BaseScene {
       const arrow = this.add.image(0, 0, ATLAS, 'i_up').setTint(0x6fdc8c).setScale(0.9);
       this.views.push({ id, image, label, arrow, tier });
     }
-    tex.refresh();
+    refreshCanvasTexture(tex);
 
     // Idle pile: one bubble, tap to collect everything.
     const bubbleBg = this.add.nineslice(0, 0, ATLAS, 'pill', 300, 84, 32, 32, 0, 0).setTint(0x1d6b3a);
@@ -176,12 +181,12 @@ export class ShelterScene extends BaseScene {
       this.resTexts.push(this.add.bitmapText(0, 0, NUM_FONT, '0', 36).setOrigin(0, 0.5));
     }
     this.title = this.add
-      .text(0, 0, '피난처', { fontFamily: FONT_FAMILY, fontSize: '40px', color: Colors.text, fontStyle: 'bold' })
+      .text(0, 0, t('shelter.title'), { fontFamily: FONT_FAMILY, fontSize: '40px', color: Colors.text, fontStyle: 'bold' })
       .setOrigin(0.5)
       .setShadow(0, 3, '#000000', 6, false, true);
 
     const next = Math.min(save.data.unlocked, LEVELS.length);
-    this.startButton = new Button(this, 0, 0, `출격 · 스테이지 ${next}`, () => this.scene.start(SceneKeys.Battle, { stage: next }), {
+    this.startButton = new Button(this, 0, 0, t('shelter.start', { n: next }), () => this.scene.start(SceneKeys.Battle, { stage: next }), {
       width: 460,
       height: 112,
       fontSize: 40,
@@ -189,8 +194,10 @@ export class ShelterScene extends BaseScene {
     this.homeButton = new IconButton(this, 0, 0, 'i_home', () => this.scene.start(SceneKeys.Lobby), { size: 112 });
 
     this.createModal();
+    this.coach = new Coach(this, D.coach);
     this.refresh();
     audio.playMusic('lobby');
+    this.enter();
     this.bindLayout();
   }
 
@@ -215,7 +222,7 @@ export class ShelterScene extends BaseScene {
       items.push(icon, text);
     }
     this.modalMax = this.add
-      .text(0, 70, '최고 레벨입니다', { fontFamily: FONT_FAMILY, fontSize: '32px', color: Colors.text })
+      .text(0, 70, t('shelter.max'), { fontFamily: FONT_FAMILY, fontSize: '32px', color: Colors.text })
       .setOrigin(0.5);
     this.modalButton = new Button(this, 0, 190, '', () => this.doUpgrade(), { width: 460, height: 112 });
     const close = new IconButton(this, 270, -270, 'i_left', () => this.closeModal(), { size: 80, iconScale: 0.8 });
@@ -254,6 +261,7 @@ export class ShelterScene extends BaseScene {
     for (const v of this.views) {
       if (v.arrow.visible) v.arrow.y = v.label.y - 56 + Math.sin(this.clock * 4) * 6;
     }
+    this.updateCoach(dt);
     // Idle pile and affordability change with time; refresh once a second.
     this.refreshTimer += dt;
     if (this.refreshTimer >= 1) {
@@ -262,12 +270,48 @@ export class ShelterScene extends BaseScene {
     }
   }
 
+  private updateCoach(dt: number): void {
+    if (save.data.tutorial.shelter) {
+      if (this.coach.visible) this.coach.hide();
+      return;
+    }
+    const width = this.scale.width;
+    let x = 0;
+    let y = 0;
+    let message = '';
+    if (this.selected) {
+      const cost = nextCost(save.data.buildings, this.selected);
+      if (cost && canAfford(save.data.resources, cost)) {
+        x = this.modal.x;
+        y = this.modal.y + 220;
+        message = t('tut.upgradeTap');
+      }
+    } else {
+      const id = suggestedUpgrade(save.data);
+      for (const v of this.views) {
+        if (v.id !== id) continue;
+        x = v.image.x;
+        y = v.image.y - 70;
+        message = t('tut.shelterTap');
+      }
+    }
+    if (!message) {
+      if (this.coach.visible) this.coach.hide();
+      return;
+    }
+    this.coach.show(message);
+    this.coach.tick(dt);
+    this.coach.pointAt(x, y);
+    const textY = this.selected ? this.modal.y + 370 : this.startButton.y - 120;
+    this.coach.textAt(width / 2, textY, width - 40);
+  }
+
   private refresh(): void {
     const res = save.data.resources;
     for (let i = 0; i < RESOURCE_IDS.length; i++) this.resTexts[i].setText(formatCount(Math.floor(res[RESOURCE_IDS[i]])));
     for (const v of this.views) {
       const level = levelOf(save.data.buildings, v.id);
-      v.label.setText(`${building(v.id).name} Lv.${level}`);
+      v.label.setText(`${buildingName(v.id)} ${t('common.level', { n: level })}`);
       const cost = nextCost(save.data.buildings, v.id);
       v.arrow.setVisible(!!cost && canAfford(res, cost));
     }
@@ -278,9 +322,7 @@ export class ShelterScene extends BaseScene {
   private refreshIdle(): void {
     const pending = idlePending(save.data.buildings, save.data.idle, Date.now());
     const parts: string[] = [];
-    if (pending.food > 0) parts.push(`식량 ${pending.food}`);
-    if (pending.scrap > 0) parts.push(`고철 ${pending.scrap}`);
-    if (pending.fuel > 0) parts.push(`연료 ${pending.fuel}`);
+    for (const r of RESOURCE_IDS) if (pending[r] > 0) parts.push(`${resourceName(r)} ${pending[r]}`);
     this.idleBubble.setVisible(parts.length > 0 && !this.selected);
     this.idleText.setText(parts.length ? `${parts.join(' · ')}` : '');
     const bg = this.idleBubble.list[0] as Phaser.GameObjects.NineSlice;
@@ -339,11 +381,10 @@ export class ShelterScene extends BaseScene {
   }
 
   private fillModal(id: BuildingId): void {
-    const def = building(id);
     const level = levelOf(save.data.buildings, id);
     const top = level >= maxLevel(id);
-    this.modalTitle.setText(`${def.name}  Lv.${level}`);
-    this.modalDesc.setText(def.desc);
+    this.modalTitle.setText(`${buildingName(id)}  ${t('common.level', { n: level })}`);
+    this.modalDesc.setText(buildingDesc(id));
     const now = effectText(id, effectAt(id, level));
     this.modalEffect.setText(top ? now : `${now}\n→ ${effectText(id, effectAt(id, level + 1))}`);
     const cost = nextCost(save.data.buildings, id);
@@ -366,7 +407,7 @@ export class ShelterScene extends BaseScene {
     const affordable = !!cost && canAfford(res, cost);
     this.modalButton.setVisible(!top);
     this.modalButton.setAlpha(affordable ? 1 : 0.45);
-    this.modalButton.setLabel(affordable ? '업그레이드' : '자원이 부족해요');
+    this.modalButton.setLabel(affordable ? t('shelter.upgrade') : t('shelter.short'));
   }
 
   private doUpgrade(): void {
@@ -377,6 +418,7 @@ export class ShelterScene extends BaseScene {
       this.cameras.main.shake(120, 0.004);
       return;
     }
+    save.data.tutorial.shelter = true;
     save.commit();
     audio.play('upgrade');
     vibrate(30);
@@ -386,7 +428,7 @@ export class ShelterScene extends BaseScene {
       view.tier = tier;
       const tex = ensureBuildingTexture(this);
       drawBuilding(tex, id, tier);
-      tex.refresh();
+      refreshCanvasTexture(tex);
     }
     // Building pops, a ring flashes out from it.
     this.tweens.add({ targets: view.image, scaleX: { from: 1.12, to: 1 }, scaleY: { from: 0.9, to: 1 }, duration: 380, ease: 'Back.Out' });

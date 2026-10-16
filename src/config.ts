@@ -12,6 +12,7 @@ export const MAX_DPR = 2;
 export const SceneKeys = {
   Boot: 'Boot',
   Preload: 'Preload',
+  Title: 'Title',
   Lobby: 'Lobby',
   Battle: 'Battle',
   Pause: 'Pause',

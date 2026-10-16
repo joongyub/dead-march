@@ -11,10 +11,12 @@ import { HordeView } from '../battle/HordeView';
 import { Hud } from '../battle/Hud';
 import { stressLevel } from '../battle/stressLevel';
 import { Track } from '../battle/Track';
+import { BattleTutorial } from '../battle/Tutorial';
 import { Colors, DESIGN_WIDTH, SceneKeys } from '../config';
 import { setFrameCap } from '../core/frameRate';
 import { FixedTimestep } from '../core/FixedTimestep';
 import { recordBattle } from '../game/progress';
+import { stageName, t, zombieName } from '../i18n';
 import { shelterModifiers } from '../meta/shelter';
 import { save } from '../game/save';
 import { flags } from '../platform/flags';
@@ -54,7 +56,7 @@ export class BattleScene extends BaseScene {
   private boss!: BossView;
   private fx!: Effects;
   private hud!: Hud;
-  private hint!: Phaser.GameObjects.Image;
+  private tutorial!: BattleTutorial;
   /** White full-screen flash (boss kill). */
   private flash!: Phaser.GameObjects.Image;
 
@@ -80,7 +82,6 @@ export class BattleScene extends BaseScene {
   private meleeLoss = 0;
   private meleeTimer = 0;
   private lastMergePopup = 0;
-  private hintTime = 0;
   private readonly point = { x: 0, y: 0 };
   private readonly stepFn = (dt: number) => this.step(dt);
 
@@ -111,7 +112,6 @@ export class BattleScene extends BaseScene {
     this.powerSeen = this.sim.army.power;
     this.meleeLoss = 0;
     this.meleeTimer = 0;
-    this.hintTime = 0;
 
     this.track = new Track(this, this.level.id);
     this.fx = new Effects(this, Depth.Decals, Depth.Fx, Depth.FxAdd, Depth.Labels);
@@ -120,9 +120,10 @@ export class BattleScene extends BaseScene {
     this.hordes = new HordeView(this);
     this.boss = new BossView(this, this.sim.boss);
     this.crowd = new CrowdView(this);
-    const stageLabel = this.stress ? '스트레스 테스트' : `${this.level.id}. ${this.level.name}`;
-    this.hud = new Hud(this, stageLabel, `보스 · ${this.sim.boss.kind.name}`, () => this.openPause());
-    this.hint = this.add.image(0, 0, ATLAS, 'i_hand').setDepth(Depth.Hud).setAlpha(0.9).setVisible(this.level.id <= 1 && !this.stress);
+    const stageLabel = this.stress ? t('battle.stress') : `${this.level.id}. ${stageName(this.level)}`;
+    const bossLabel = t('battle.boss', { name: zombieName(this.sim.boss.kindId, this.sim.boss.kind.name) });
+    this.hud = new Hud(this, stageLabel, bossLabel, () => this.openPause());
+    this.tutorial = new BattleTutorial(this, this.stress ? 0 : this.level.id);
     this.flash = this.add.image(0, 0, ATLAS, 'px').setOrigin(0).setDepth(Depth.Hud - 1).setAlpha(0);
     this.createBench(flags.bench);
     audio.playMusic('battle');
@@ -149,6 +150,7 @@ export class BattleScene extends BaseScene {
     });
 
     this.cameras.main.setBackgroundColor(Colors.background);
+    this.enter();
     this.bindLayout();
     // Expose for automated checks (?debug=1 only).
     if (flags.debug) Object.assign(window, { __battle: this });
@@ -183,9 +185,14 @@ export class BattleScene extends BaseScene {
       simDelta = delta * 0.3;
       fxScale = 0.45;
     }
+    // A lesson on screen slows the battle so there is time to read it.
+    simDelta *= this.tutorial.timeScale;
     if (this.keys) {
       const dir = (this.keys.right.isDown ? 1 : 0) - (this.keys.left.isDown ? 1 : 0);
-      if (dir !== 0) this.targetX = Phaser.Math.Clamp(this.targetX + dir * 900 * (delta / 1000), ROAD_LEFT, ROAD_RIGHT);
+      if (dir !== 0) {
+        this.targetX = Phaser.Math.Clamp(this.targetX + dir * 900 * (delta / 1000), ROAD_LEFT, ROAD_RIGHT);
+        this.tutorial.onDrag(900 * (delta / 1000));
+      }
     }
 
     const alpha = this.timestep.advance(simDelta, this.stepFn);
@@ -234,7 +241,7 @@ export class BattleScene extends BaseScene {
   private onPointerMove(p: Phaser.Input.Pointer): void {
     if (!this.dragging || !p.isDown) return;
     this.targetX = Phaser.Math.Clamp(this.dragStartTarget + (p.x - this.dragStartX) * DRAG_GAIN, ROAD_LEFT, ROAD_RIGHT);
-    if (this.hint.visible && Math.abs(p.x - this.dragStartX) > 40) this.hint.setVisible(false);
+    this.tutorial.onDrag(p.x - p.prevPosition.x);
   }
 
   private onPointerUp(): void {
@@ -261,6 +268,7 @@ export class BattleScene extends BaseScene {
     const numberY = cy - sim.crowdRadius - 150;
     const wordY = cy - sim.crowdRadius - 240;
     for (const e of sim.events) {
+      this.tutorial.onEvent(e);
       switch (e.type) {
         case 'gate': {
           const delta = sim.army.power - e.powerBefore;
@@ -374,10 +382,7 @@ export class BattleScene extends BaseScene {
     this.fx.update(dt, roadX, crowdY, distance, this.viewBottom);
     this.hud.update(dt, sim, cx, crowdY);
     if (this.flash.alpha > 0) this.flash.setAlpha(Math.max(0, this.flash.alpha - dt * 2.5));
-    if (this.hint.visible) {
-      this.hintTime += dt;
-      this.hint.setPosition(cx + Math.sin(this.hintTime * 3) * 130, crowdY + 120);
-    }
+    this.tutorial.update(dt, sim, roadX, crowdY, this.hud.tierIconAt(1));
   }
 
   /** Tracers from random front units to the current target; the rate grows with the crowd but is capped. */
@@ -439,6 +444,7 @@ export class BattleScene extends BaseScene {
 
   private finish(): void {
     const outcome = this.stress ? null : recordBattle(this.sim);
+    this.tutorial.hide();
     this.scene.pause();
     this.scene.launch(SceneKeys.Result, {
       stage: this.level.id,

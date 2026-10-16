@@ -1,5 +1,5 @@
-// Headless phone-sized smoke test: builds nothing, serves dist/, drives lobby → battle → pause → result,
-// runs the 5,000-army stress stage, records the ?debug=1 performance numbers and saves screenshots to artifacts/.
+// Headless phone-sized smoke test: builds nothing, serves dist/, drives title → lobby → battle (with the
+// stage 1 lessons) → pause → result → shelter, checks save recovery, runs the 5,000-army stress stage, records the ?debug=1 performance numbers and saves screenshots to artifacts/.
 //
 // Usage: npm run build && npm run smoke [-- --throttle=4]
 //
@@ -13,7 +13,7 @@ import { preview } from 'vite';
 const OUT = 'artifacts';
 const throttleArg = process.argv.find((a) => a.startsWith('--throttle='));
 const THROTTLE = throttleArg ? Number(throttleArg.split('=')[1]) : 1;
-const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
+const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, locale: 'ko-KR' };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -62,6 +62,27 @@ async function main() {
       );
       await tapGame(pos.x, pos.y);
     };
+    // Drags a finger across the screen in game coordinates (touch events, like a phone).
+    const dragGame = async (gx0, gy, gx1, steps = 12) => {
+      const pts = await page.evaluate(
+        ([x0, y, x1]) => {
+          const { game } = window.__dm;
+          const rect = game.canvas.getBoundingClientRect();
+          const k = rect.width / game.scale.width;
+          return { x0: rect.left + x0 * k, x1: rect.left + x1 * k, y: rect.top + y * k };
+        },
+        [gx0, gy, gx1],
+      );
+      const cdp = await context.newCDPSession(page);
+      const touch = (type, x) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y: pts.y }] });
+      await touch('touchStart', pts.x0);
+      for (let i = 1; i <= steps; i++) {
+        await touch('touchMove', pts.x0 + ((pts.x1 - pts.x0) * i) / steps);
+        await sleep(30);
+      }
+      await touch('touchEnd', pts.x1);
+      await cdp.detach();
+    };
     const activeScenes = () =>
       page.evaluate(() => window.__dm.game.scene.getScenes(true).map((s) => s.scene.key));
     const measure = async (label, ms = 4000) => {
@@ -75,10 +96,53 @@ async function main() {
       return data;
     };
 
+    // Scene switches armed with expectSwitch(key) right before the tap are timed two ways:
+    // work = old scene shut down → new scene created (what this code costs; the 160ms fade-in follows),
+    // firstFrame = finger up → first frame of the new scene drawn (includes waiting for the next frame
+    // and SwiftShader's slow drawing, so it is much longer here than on a phone; reported only).
+    const watchSwitches = () =>
+      page.evaluate(() => {
+        const { game } = window.__dm;
+        const log = (window.__switches = []);
+        let tapAt = 0;
+        let workStart = 0;
+        window.__expectSwitch = null;
+        document.addEventListener('pointerup', () => (tapAt = performance.now()), { capture: true });
+        for (const scene of game.scene.scenes) {
+          scene.events.on('shutdown', () => {
+            if (window.__expectSwitch && !workStart) workStart = performance.now();
+          });
+          scene.events.on('create', () => {
+            if (window.__expectSwitch !== scene.scene.key) return;
+            window.__expectSwitch = null;
+            const from = tapAt;
+            const work = Math.round(performance.now() - (workStart || performance.now()));
+            workStart = 0;
+            game.events.once('postrender', () =>
+              log.push({ to: scene.scene.key, work, firstFrame: Math.round(performance.now() - from) }),
+            );
+          });
+        }
+      });
+    const expectSwitch = (key) => page.evaluate((k) => (window.__expectSwitch = k), key);
+    // The title screen waits for a tap anywhere.
+    const passTitle = async () => {
+      await page.waitForFunction(() => window.__dm?.monitor && window.__dm.game.scene.isActive('Title'), null, { timeout: 15000 });
+      await sleep(600);
+      const { w: tw, h: th } = await size();
+      await page.evaluate(() => window.__expectSwitch !== undefined && (window.__expectSwitch = 'Lobby'));
+      await tapGame(tw / 2, th * 0.78);
+      await page.waitForFunction(() => window.__dm.game.scene.isActive('Lobby'), null, { timeout: 10000 });
+    };
+
     await page.goto(`${base}?debug=1`);
-    await page.waitForFunction(() => window.__dm?.monitor, null, { timeout: 15000 });
-    await sleep(1500);
+    await page.waitForFunction(() => window.__dm?.monitor && window.__dm.game.scene.isActive('Title'), null, { timeout: 15000 });
+    await watchSwitches();
+    await sleep(1200);
     results.scenesAtStart = await activeScenes();
+    await page.screenshot({ path: `${OUT}/0-title.png` });
+    await passTitle();
+    await sleep(1200);
     await measure('lobby');
     await page.screenshot({ path: `${OUT}/1-lobby.png` });
 
@@ -95,9 +159,17 @@ async function main() {
     results.lobbyAfterSettings = await page.evaluate(
       () => window.__dm.game.scene.isActive('Lobby') && !window.__dm.game.scene.isActive('Settings'),
     );
+    await expectSwitch('Battle');
     await tapButton('Lobby', 'startButton'); // 출격
     await sleep(800);
     results.scenesAfterStart = await activeScenes();
+    // Stage 1 on a fresh save opens with the steering lesson; dragging clears it.
+    results.swipeLessonShown = await page.evaluate(() => window.__battle.tutorial.step === 'swipe');
+    await page.screenshot({ path: `${OUT}/2-battle-lesson.png` });
+    const { h: gh } = await size();
+    await dragGame(300, gh * 0.8, 520);
+    await sleep(300);
+    results.swipeLearned = await page.evaluate(() => window.__dm.save.data.tutorial.swipe === true && window.__battle.tutorial.step !== 'swipe');
     await measure('battle');
     await page.screenshot({ path: `${OUT}/2-battle.png` });
 
@@ -127,24 +199,31 @@ async function main() {
       }
       return battle.sim.phase;
     });
+    console.log('stage 1 played through:', results.finished);
     await page
-      .waitForFunction(() => window.__dm.game.scene.isActive('Result'), null, { timeout: 15000 })
+      .waitForFunction(() => window.__dm.game.scene.isActive('Result'), null, { timeout: 60000 })
       .catch(() => {});
     await sleep(800);
     results.scenesAtEnd = await activeScenes();
     await page.screenshot({ path: `${OUT}/4-result.png` });
 
-    // Shelter: open it with resources in hand, upgrade the wall through the upgrade window.
+    // First win with an upgrade in reach: the shelter button comes first, with the finger on it.
+    results.resultShelterFirst = await page.evaluate(() => {
+      const r = window.__dm.game.scene.getScene('Result');
+      return r.buttons[0] === r.shelterButton && r.coach.visible;
+    });
+
+    // Shelter: go there from the result screen with resources in hand, upgrade through the upgrade window.
     await page.evaluate(() => {
-      const { game, save } = window.__dm;
+      const { save } = window.__dm;
       save.data.resources = { food: 5000, scrap: 5000, fuel: 200 };
       save.data.idle.collectedAt = Date.now() - 3 * 3600 * 1000;
-      // Stop everything still running or paused underneath (battle, result) before opening the shelter.
-      for (const s of game.scene.scenes) if (s.scene.isActive() || s.scene.isPaused()) s.scene.stop();
-      game.scene.start('Shelter');
     });
+    await expectSwitch('Shelter');
+    await tapButton('Result', 'shelterButton');
     await page.waitForFunction(() => window.__dm.game.scene.isActive('Shelter'), null, { timeout: 10000 });
     await sleep(1200);
+    results.shelterLessonShown = await page.evaluate(() => window.__dm.game.scene.getScene('Shelter').coach.visible);
     await page.screenshot({ path: `${OUT}/7-shelter.png` });
     results.wallBefore = await page.evaluate(() => window.__dm.save.data.buildings.wall ?? 1);
     await page.evaluate(() => {
@@ -163,12 +242,38 @@ async function main() {
     await tapGame(upgradePos.x, upgradePos.y);
     await sleep(400);
     results.wallAfter = await page.evaluate(() => window.__dm.save.data.buildings.wall ?? 1);
+    results.shelterLessonDone = await page.evaluate(() => window.__dm.save.data.tutorial.shelter === true);
     await measure('shelter', 3000);
+    await tapButton('Shelter', 'homeButton'); // the first tap lands on the dimmed backdrop and closes the window
+    await sleep(400);
+    await expectSwitch('Lobby');
+    await tapButton('Shelter', 'homeButton');
+    await page.waitForFunction(() => window.__dm.game.scene.isActive('Lobby'), null, { timeout: 10000 });
+    await sleep(600);
+    results.switches = await page.evaluate(() => window.__switches);
+
+    // A corrupted main save comes back from the backup instead of starting over.
+    await page.evaluate(async () => {
+      const { save } = window.__dm;
+      await save.flush();
+      await save.flush(); // the backup now holds the upgraded shelter too
+      // Like a crash mid-write: no save on the way out, and a half-written main copy.
+      save.flush = async () => {};
+      save.commit = () => {};
+      localStorage.setItem('dead-march.save', '{"h":"0","d":"{broken');
+    });
+    await page.reload();
+    await page.waitForFunction(() => window.__dm?.monitor && window.__dm.game.scene.isActive('Title'), null, { timeout: 15000 });
+    results.recovered = await page.evaluate(() => ({
+      recovered: window.__dm.save.recovered,
+      wall: window.__dm.save.data.buildings.wall ?? 1,
+      unlocked: window.__dm.save.data.unlocked,
+    }));
 
     // Heaviest battle: 5,000+ army against back-to-back hordes.
     await page.goto(`${base}?debug=1&stress=1`);
-    await page.waitForFunction(() => window.__dm?.monitor, null, { timeout: 15000 });
-    await sleep(1000);
+    await passTitle();
+    await sleep(600);
     await tapButton('Lobby', 'startButton');
     await sleep(2500);
     await measure('stress', 6000);
@@ -177,8 +282,8 @@ async function main() {
 
     // Raw rendering cost with many sprites on screen.
     await page.goto(`${base}?debug=1&bench=2000`);
-    await page.waitForFunction(() => window.__dm?.monitor, null, { timeout: 15000 });
-    await sleep(1000);
+    await passTitle();
+    await sleep(600);
     await tapButton('Lobby', 'startButton');
     await sleep(1000);
     await measure('bench2000');
@@ -190,13 +295,20 @@ async function main() {
 
   const measured = ['lobby', 'battle', 'shelter', 'stress', 'bench2000'].map((k) => results[k]?.summary).filter(Boolean);
   const unitSprites = (results.stressSprites?.units ?? Infinity) + (results.stressSprites?.zombies ?? Infinity);
+  // Work plus the 160ms fade-in has to fit in 300ms.
+  const slowestSwitch = Math.max(...(results.switches ?? [{ work: Infinity }]).map((s) => s.work));
   results.checks = {
+    'title -> lobby by tap': results.switches?.some((s) => s.to === 'Lobby') ?? false,
     'settings open and close over the lobby': results.settingsOpened === true && results.lobbyAfterSettings === true,
     'lobby -> battle by tap': results.scenesAfterStart?.includes('Battle') ?? false,
     'background -> battle paused': results.battlePausedAfterHidden === true,
     'resume button -> battle running': results.battleRunningAfterResume === true,
     'stage played to the end -> result screen': results.scenesAtEnd?.includes('Result') ?? false,
+    'stage 1 steering lesson, cleared by dragging': results.swipeLessonShown === true && results.swipeLearned === true,
+    'first upgrade lesson: result -> shelter -> upgrade': results.resultShelterFirst === true && results.shelterLessonShown === true && results.shelterLessonDone === true,
     'shelter upgrade raises the wall': results.wallAfter === results.wallBefore + 1,
+    'corrupted save restored from backup': results.recovered?.recovered === true && results.recovered.wall === results.wallAfter && results.recovered.unlocked >= 2,
+    [`scene switch work + 160ms fade <= 300ms (slowest work ${slowestSwitch}ms)`]: slowestSwitch + 160 <= 300,
     'logic <= 4ms (stress, 5000+ army)': (results.stress?.summary.logicMsAvg ?? Infinity) <= 4,
     'logic <= 4ms (2000 sprites)': (results.bench2000?.summary.logicMsAvg ?? Infinity) <= 4,
     'unit sprites <= 200 (stress)': unitSprites <= 200,

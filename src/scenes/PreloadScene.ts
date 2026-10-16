@@ -3,6 +3,7 @@ import { Colors, FONT_FAMILY, SceneKeys, TextureKeys } from '../config';
 import { buildAtlas } from '../art/atlas';
 import { audio } from '../audio/Audio';
 import { save } from '../game/save';
+import { resolveLang, setLang, t } from '../i18n';
 
 /** Loading screen: draws the battle atlas, loads the save, then opens the lobby. */
 export class PreloadScene extends Phaser.Scene {
@@ -16,7 +17,7 @@ export class PreloadScene extends Phaser.Scene {
     const y = height * 0.55;
 
     this.add
-      .text(width / 2, y - 60, '불러오는 중', { fontFamily: FONT_FAMILY, fontSize: '32px', color: Colors.textDim })
+      .text(width / 2, y - 60, t('loading'), { fontFamily: FONT_FAMILY, fontSize: '32px', color: Colors.textDim })
       .setOrigin(0.5);
     this.add.image(width / 2, y, TextureKeys.Pixel).setDisplaySize(barWidth, 16).setTint(Colors.neutral);
     const fill = this.add
@@ -29,12 +30,14 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   create(): void {
-    buildAtlas(this);
     void save.load().then(() => {
+      // The atlas draws pop-up words, so the language must be known first.
+      setLang(resolveLang(save.data.settings.lang));
+      buildAtlas(this);
       audio.setEnabled(save.data.settings.sound);
       // Sounds render in the background; the lobby does not wait for them.
       void audio.preload();
-      this.scene.start(SceneKeys.Lobby);
+      this.scene.start(SceneKeys.Title);
     });
   }
 }

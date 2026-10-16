@@ -6,9 +6,12 @@ import { audio } from '../audio/Audio';
 import { Colors, DESIGN_HEIGHT, DESIGN_WIDTH, FONT_FAMILY, SceneKeys } from '../config';
 import { setFrameCap } from '../core/frameRate';
 import { save } from '../game/save';
+import { suggestedUpgrade } from '../meta/shelter';
 import { flags } from '../platform/flags';
 import { getLevel, LEVELS } from '../sim/rules';
+import { stageIntro, stageName, t } from '../i18n';
 import { Button } from '../ui/Button';
+import { Coach } from '../ui/Coach';
 import { IconButton } from '../ui/IconButton';
 import { BaseScene } from './BaseScene';
 import { ShelterScene } from './ShelterScene';
@@ -37,6 +40,8 @@ export class LobbyScene extends BaseScene {
   private settingsButton!: IconButton;
   private debugNote!: Phaser.GameObjects.Text;
   private version!: Phaser.GameObjects.Text;
+  /** Points at the shelter until the first building upgrade. */
+  private coach!: Coach;
   private stage = 1;
 
   private marchers: Phaser.GameObjects.Image[] = [];
@@ -82,7 +87,7 @@ export class LobbyScene extends BaseScene {
 
     this.logo = this.add.image(0, 0, LOBBY_LOGO);
     this.subtitle = this.add
-      .text(0, 0, '데드 마치', { fontFamily: FONT_FAMILY, fontSize: '40px', color: Colors.accent, fontStyle: 'bold' })
+      .text(0, 0, t('title.subtitle'), { fontFamily: FONT_FAMILY, fontSize: '40px', color: Colors.accent, fontStyle: 'bold' })
       .setOrigin(0.5)
       .setShadow(0, 3, '#000000', 6, false, true);
 
@@ -97,12 +102,12 @@ export class LobbyScene extends BaseScene {
     this.bossIcon = this.add.image(0, 0, ATLAS, 'i_boss').setTint(0xff6060).setScale(0.8);
     this.prevButton = new IconButton(this, 0, 0, 'i_left', () => this.browse(-1), { size: 96 });
     this.nextButton = new IconButton(this, 0, 0, 'i_right', () => this.browse(1), { size: 96 });
-    this.startButton = new Button(this, 0, 0, '출격', () => this.scene.start(SceneKeys.Battle, { stage: this.stage }), {
+    this.startButton = new Button(this, 0, 0, t('lobby.start'), () => this.scene.start(SceneKeys.Battle, { stage: this.stage }), {
       width: 400,
       height: 120,
       fontSize: 48,
     });
-    this.shelterButton = new Button(this, 0, 0, '피난처', () => this.scene.start(SceneKeys.Shelter), {
+    this.shelterButton = new Button(this, 0, 0, t('lobby.shelter'), () => this.scene.start(SceneKeys.Shelter), {
       width: 240,
       height: 120,
       fontSize: 38,
@@ -112,14 +117,19 @@ export class LobbyScene extends BaseScene {
     this.shelterBadge = this.add.image(0, 0, ATLAS, 'circle').setTint(0xff3b3b).setScale(0.45).setVisible(ShelterScene.hasNews());
     this.settingsButton = new IconButton(this, 0, 0, 'i_gear', () => this.openSettings(), { size: 88 });
     this.debugNote = this.add
-      .text(0, 0, flags.debug ? '개발용: 모든 스테이지 선택 가능' : '', { fontFamily: FONT_FAMILY, fontSize: '22px', color: '#ff9f6b' })
+      .text(0, 0, flags.debug ? t('lobby.debugAll') : '', { fontFamily: FONT_FAMILY, fontSize: '22px', color: '#ff9f6b' })
       .setOrigin(0.5);
     this.version = this.add
       .text(0, 0, `v${__APP_VERSION__} · ${__BUILD_SHA__}`, { fontFamily: FONT_FAMILY, fontSize: '22px', color: Colors.textDim })
       .setOrigin(0.5, 1);
 
+    this.coach = new Coach(this, 100);
+    if (!save.data.tutorial.shelter && suggestedUpgrade(save.data)) this.coach.show(t('tut.shelterLobby'));
+    this.debugNote.setVisible(!this.coach.visible);
+
     this.refresh();
     audio.playMusic('lobby');
+    this.enter();
     this.bindLayout();
   }
 
@@ -129,6 +139,10 @@ export class LobbyScene extends BaseScene {
     this.logo.y = this.logoBaseY + Math.sin(this.clock * 1.4) * 4;
     this.stepMarchers(dt);
     this.stepEmbers(dt);
+    if (this.coach.visible) {
+      this.coach.tick(dt);
+      this.coach.pointAt(this.shelterButton.x, this.shelterButton.y + 30);
+    }
   }
 
   private get maxStage(): number {
@@ -148,11 +162,12 @@ export class LobbyScene extends BaseScene {
   private refresh(): void {
     const level = getLevel(this.stage);
     this.stageNo.setText(String(level.id));
-    this.stageName.setText(level.name);
+    this.stageName.setText(stageName(level));
     const best = save.data.best[level.id];
     const info: string[] = [];
-    if (level.intro) info.push(`새로 등장: ${level.intro}`);
-    info.push(best !== undefined ? `최고 기록: 병력 ${formatCount(best)} 남기고 클리어` : '아직 깨지 않은 스테이지');
+    const intro = stageIntro(level);
+    if (intro) info.push(t('lobby.new', { what: intro }));
+    info.push(best !== undefined ? t('lobby.best', { n: formatCount(best) }) : t('lobby.notCleared'));
     this.stageInfo.setText(info.join('\n'));
     this.bossIcon.setVisible(level.id % 5 === 0);
     this.prevButton.setEnabled(this.stage > 1);
@@ -226,6 +241,8 @@ export class LobbyScene extends BaseScene {
     this.prevButton.setPosition(cx - 280, cardY + 210);
     this.nextButton.setPosition(cx + 280, cardY + 210);
     this.debugNote.setPosition(cx, cardY + 210);
+    // Between the stage arrows, above the buttons.
+    this.coach.textAt(cx, cardY + 210, 440);
     const buttonsY = Math.min(height - this.insets.bottom - 170, cardY + 340);
     this.shelterButton.setPosition(cx - 210, buttonsY);
     this.startButton.setPosition(cx + 120, buttonsY);

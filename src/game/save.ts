@@ -7,10 +7,12 @@ import { storage } from '../platform/storage';
  * update never wipes a player's progress. Each write also keeps the previous good copy as a backup;
  * a corrupted save (bad JSON, failed checksum) is restored from it instead of being reset.
  */
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
-const MAIN_KEY = 'dead-march.save';
-const BACKUP_KEY = 'dead-march.save.backup';
+export const MAIN_KEY = 'dead-march.save';
+export const BACKUP_KEY = 'dead-march.save.backup';
+/** An unreadable main save is parked here before being replaced, so it can still be looked at. */
+export const UNREADABLE_KEY = 'dead-march.save.unreadable';
 
 export type ResourceId = 'food' | 'scrap' | 'fuel';
 
@@ -31,7 +33,8 @@ export interface SaveData {
     lowSpec: 'auto' | 'on' | 'off';
     lang: 'auto' | 'ko' | 'en';
   };
-  tutorial: { done: boolean };
+  /** Lessons already learned: steering, gates and merges in stage 1, then the first shelter upgrade. */
+  tutorial: { swipe: boolean; gate: boolean; merge: boolean; shelter: boolean };
   stats: { battles: number; wins: number; zombies: number };
   /** Idle rewards: when they were last collected, and the latest time the game saw (clock-rollback guard). */
   idle: { collectedAt: number; lastSeen: number };
@@ -47,7 +50,7 @@ export function freshSave(now = Date.now()): SaveData {
     resources: { food: 0, scrap: 0, fuel: 0 },
     buildings: {},
     settings: { sound: true, vibration: true, shake: true, lowSpec: 'auto', lang: 'auto' },
-    tutorial: { done: false },
+    tutorial: { swipe: false, gate: false, merge: false, shelter: false },
     stats: { battles: 0, wins: 0, zombies: 0 },
     idle: { collectedAt: now, lastSeen: now },
     shop: { noAds: false, owned: [] },
@@ -56,7 +59,11 @@ export function freshSave(now = Date.now()): SaveData {
 
 /** Upgrades a save written by an older version, one version at a time. */
 const MIGRATIONS: Record<number, (old: Record<string, unknown>) => Record<string, unknown>> = {
-  // 1 → 2: add a migration here when SAVE_VERSION becomes 2.
+  // 1 → 2: the single tutorial flag became one flag per lesson.
+  1: (old) => {
+    const done = (old.tutorial as { done?: boolean } | undefined)?.done === true;
+    return { ...old, tutorial: { swipe: done, gate: done, merge: done, shelter: done } };
+  },
 };
 
 /** Fills in anything missing (older or hand-edited saves) with defaults, field by field. */
@@ -136,11 +143,15 @@ class SaveStore {
       this.data = main;
       return;
     }
-    const hadMain = (await backend.read(MAIN_KEY)) !== null;
+    const rawMain = await backend.read(MAIN_KEY);
+    const hadMain = rawMain !== null;
     const backup = decode(await backend.read(BACKUP_KEY));
     this.recovered = hadMain;
     this.data = backup ?? freshSave();
-    if (hadMain) await this.flush();
+    if (hadMain) {
+      await backend.write(UNREADABLE_KEY, rawMain);
+      await this.flush();
+    }
   }
 
   /** Schedules a write soon (coalesces bursts of changes). */

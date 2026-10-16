@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import type { BuildingId } from '../meta/shelter';
+import { addCanvasTexture, textureCanvas } from './canvasTexture';
 import { circle, ellipse, line, linear, polygon, radial, roundRect, seeded, shadow, type Ctx } from './draw';
 
 export const SHELTER_BG = 'shelter_bg';
@@ -211,10 +212,12 @@ const DRAW: Record<BuildingId, (c: Ctx, tier: number) => void> = {
  * All building pictures share one canvas texture. A building is redrawn in place only when its look
  * changes tier, then the texture is re-uploaded once.
  */
-export function ensureBuildingTexture(scene: Phaser.Scene): Phaser.Textures.CanvasTexture {
-  const existing = scene.textures.get(SHELTER_BUILDINGS);
-  if (scene.textures.exists(SHELTER_BUILDINGS)) return existing as Phaser.Textures.CanvasTexture;
-  const tex = scene.textures.createCanvas(SHELTER_BUILDINGS, 1024, 1024)!;
+export function ensureBuildingTexture(scene: Phaser.Scene): Phaser.Textures.Texture {
+  if (scene.textures.exists(SHELTER_BUILDINGS)) return scene.textures.get(SHELTER_BUILDINGS);
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const tex = addCanvasTexture(scene, SHELTER_BUILDINGS, canvas);
   for (const id of Object.keys(SLOTS) as BuildingId[]) {
     const s = SLOTS[id];
     tex.add(id, 0, s.x, s.y, s.w, s.h);
@@ -222,9 +225,10 @@ export function ensureBuildingTexture(scene: Phaser.Scene): Phaser.Textures.Canv
   return tex;
 }
 
-export function drawBuilding(tex: Phaser.Textures.CanvasTexture, id: BuildingId, tier: number): void {
+/** Redraws one building in the shared canvas; call refreshCanvasTexture once after all redraws. */
+export function drawBuilding(tex: Phaser.Textures.Texture, id: BuildingId, tier: number): void {
   const s = SLOTS[id];
-  const c = tex.getContext();
+  const c = textureCanvas(tex).getContext('2d')!;
   c.save();
   c.clearRect(s.x, s.y, s.w, s.h);
   c.beginPath();
@@ -353,5 +357,5 @@ export function buildShelterBackground(scene: Phaser.Scene): void {
   c.fillStyle = radial(c, W / 2, H / 2, H * 0.7, [[0.55, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0.65)']]);
   c.fillRect(0, 0, W, H);
 
-  scene.textures.addCanvas(SHELTER_BG, canvas);
+  addCanvasTexture(scene, SHELTER_BG, canvas);
 }

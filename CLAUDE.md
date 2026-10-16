@@ -51,13 +51,15 @@ src/
   meta/                피난처 규칙 (건물 비용·효과, 방치 보상, 시간 되돌림 방지). 역시 Phaser 없음
   data/                units/zombies/levels/economy/shelter JSON. 수치는 여기서만 바꾼다
   art/                 그림을 코드로 그려 아틀라스 한 장 + 숫자 비트맵 폰트로 만듦 (로비 배경·로고는 lobbyArt.ts)
+                       캔버스 텍스처는 canvasTexture.ts로 등록한다 (Phaser addCanvas는 픽셀을 다시 읽어 수 초 걸림)
   audio/               효과음과 음악을 Web Audio로 합성 (파일 없음). 동시 8개, 같은 소리 최소 간격
-  battle/              전투 화면 조각 (도로, 무리, 좀비 떼, 게이트, 바리케이드, 보스, 효과, HUD)
+  battle/              전투 화면 조각 (도로, 무리, 좀비 떼, 게이트, 바리케이드, 보스, 효과, HUD, 1스테이지 튜토리얼)
+  i18n/                화면 문구 ko.ts / en.ts와 t('키'). 기기 언어로 자동 선택, 설정에서 바꿀 수 있음
   game/                저장(버전, 백업, 마이그레이션)과 보상/진행
   platform/            브라우저/기기 대응 (URL 플래그, 저장소, 진동, 확대·스크롤 방지, 노치 여백)
   debug/               성능 측정기와 오버레이 (?debug=1 전용)
-  ui/                  공용 UI 위젯 (Button, IconButton, Toggle)
-  scenes/              Boot → Preload → Lobby ⇄ Shelter → Battle (+ Pause, Result, Settings 오버레이)
+  ui/                  공용 UI 위젯 (Button, IconButton, Toggle, Coach: 튜토리얼 손가락과 한 줄 글)
+  scenes/              Boot → Preload → Title → Lobby ⇄ Shelter → Battle (+ Pause, Result, Settings 오버레이)
 public/                manifest.webmanifest, 아이콘, licenses.txt (그대로 복사됨)
 assets/                안드로이드 아이콘/스플래시 원본 (9단계 Capacitor용, 웹 빌드에는 안 들어감)
 scripts/smoke.mjs      헤드리스 휴대폰 검사
@@ -79,7 +81,10 @@ tests/                 브라우저 없이 도는 규칙 검사 (npm test, PR마
 - 장면이 `game.events`나 `scale`에 등록한 리스너는 `SHUTDOWN`에서 해제한다.
 - 버튼은 손을 뗄 때 실행한다(`ui/Button.ts`). 터치 영역은 최소 80×80 게임 단위.
 - URL 플래그: `?debug=1` 성능 오버레이와 모든 스테이지 선택, `?stress=1` 병력 5,000 스트레스 스테이지, `?bench=N` 전투 장면에 움직이는 스프라이트 N개.
-- 화면 문구는 한국어. 7단계에서 ko/en 파일로 분리한다.
+- 화면 문구는 코드에 쓰지 않고 `src/i18n/ko.ts`에 키로 넣은 뒤 `en.ts`에도 같은 키를 넣는다(`npm test`가 빠진 키와 `{자리표시}` 차이를 잡는다). 스테이지·유닛·좀비·건물 이름은 한국어는 JSON, 영어는 `en.ts`의 표.
+- 저장 형식을 바꾸면 `SAVE_VERSION`을 올리고 `MIGRATIONS`에 이전 버전 변환 함수를 넣는다. 저장소 접근은 `platform/storage.ts` 한 곳(앱에서는 Capacitor 저장소로 교체).
+- 튜토리얼은 손가락 + 한 줄 글(`ui/Coach.ts`)만 쓰고, 배운 단계는 `save.data.tutorial`에 남긴다.
+- 화면 전환은 0.3초 이내: 장면 `create()` 작업 + 0.16초 페이드. 큰 그림은 처음 한 번만 그리고 텍스처를 재사용한다.
 - 외부 그림·소리·글꼴을 넣으면 `CREDITS.md`에 출처와 라이선스를 적는다. 상업적 이용이 안 되는 자료는 넣지 않는다.
 - 의존성 버전은 고정(`^` 없이)하고, 새 라이브러리는 용량과 성능 영향을 확인한 뒤 추가한다.
 
@@ -93,7 +98,7 @@ npm run smoke        # 빌드 결과를 휴대폰 크기 헤드리스 브라우�
 npm run gen-levels   # 스테이지 다시 생성 (약 10분)
 npm run balance      # 밸런스 표 docs/balance.md
 npm run icons        # 앱 아이콘/스플래시 다시 그리기
-npm test             # 규칙 검사 (피난처, 방치 보상, 저장)
+npm test             # 규칙 검사 (피난처, 방치 보상, 저장 복구, 언어 파일)
 npm run gen-shelter  # 피난처 비용·효과 데이터 다시 생성
 npm run playtime     # 플레이 시간 추정 docs/playtime.md
 ```

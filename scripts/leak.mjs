@@ -1,7 +1,8 @@
 // Memory leak check: 30 battles in a row, the way a player goes (result → retry/next, a trip through the
-// shelter and lobby every 10 battles), measuring after each checkpoint with a forced garbage collection:
-// JS heap, textures, game objects in every scene, running tweens, and the listeners scenes register on
-// the game, scale manager and input. Anything that keeps growing is a leak. Writes artifacts/leak.json.
+// shelter and lobby after battles 3, 13 and 23), measuring after each checkpoint with a forced garbage
+// collection: JS heap, textures, game objects in every scene, running tweens, and the listeners scenes
+// register on the game, scale manager and input. Anything that keeps growing is a leak. Writes
+// artifacts/leak.json.
 //
 // Usage: npm run build && npm run leak
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -91,8 +92,9 @@ async function main() {
       });
       await page.waitForFunction(() => window.__dm.game.scene.isActive('Result'), null, { timeout: 60000 });
       await sleep(200);
-      if (i % 10 === 0) {
-        // Through the shelter and the lobby, as a player would between sessions.
+      if (i % 10 === 3) {
+        // Through the shelter and the lobby, as a player would between sessions. The first trip comes
+        // before the first checkpoint, so textures those screens build once (and keep) are in the baseline.
         await page.evaluate(() => window.__dm.game.scene.getScene('Result').toShelter());
         await page.waitForFunction(() => window.__dm.game.scene.isActive('Shelter'), null, { timeout: 30000 });
         await sleep(300);

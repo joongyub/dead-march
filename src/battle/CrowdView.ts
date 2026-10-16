@@ -116,15 +116,18 @@ export class CrowdView {
     this.shown = n;
 
     if (n !== this.slotsFor || radius !== this.slotsRadius) {
+      // Lower on screen draws in front. The front-to-back order of the slots depends only on how many
+      // there are (the radius scales them all alike), so depths change, and the scene re-sorts its
+      // display list, only when the count changes; every setDepth call queues a full re-sort.
+      const reorder = n !== this.slotsFor;
       this.slotsFor = n;
       this.slotsRadius = radius;
       for (let i = 0; i < n; i++) {
-        const r = radius * Math.sqrt((i + 0.5) / n);
+        const u = Math.sqrt((i + 0.5) / n);
         const a = i * GOLDEN_ANGLE;
-        this.tx[i] = Math.cos(a) * r;
-        this.ty[i] = Math.sin(a) * r * 0.8;
-        // Lower on screen draws in front; fixed per slot so nothing re-sorts every frame.
-        this.sprites[i].setDepth(Depth.Actors + 0.5 + (this.ty[i] + 200) / 1000);
+        this.tx[i] = Math.cos(a) * u * radius;
+        this.ty[i] = Math.sin(a) * u * radius * 0.8;
+        if (reorder) this.sprites[i].setDepth(Depth.Actors + 0.5 + (Math.sin(a) * u + 1) / 4);
       }
     }
   }

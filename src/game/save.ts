@@ -3,8 +3,9 @@ import { storage } from '../platform/storage';
 /**
  * Everything the game remembers between sessions, in one versioned document.
  *
- * Bump SAVE_VERSION whenever the shape changes and add a migration from the previous version, so an
- * update never wipes a player's progress. Each write also keeps the previous good copy as a backup;
+ * Bump SAVE_VERSION whenever an existing field changes shape or meaning, and add a migration from the
+ * previous version, so an update never wipes a player's progress (a new field with a default only needs
+ * freshSave and normalize). Each write also keeps the previous good copy as a backup;
  * a corrupted save (bad JSON, failed checksum) is restored from it instead of being reset.
  */
 export const SAVE_VERSION = 2;

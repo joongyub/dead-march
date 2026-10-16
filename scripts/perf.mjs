@@ -13,13 +13,15 @@
 //   --quick    4× only, fewer frames (CI)
 //   --profile  also records a CPU profile of the stress stage at 4× on an unminified build and lists
 //              the functions that take the most time (written to artifacts/profile.txt)
-import { mkdir, writeFile } from 'node:fs/promises';
+//   --profile-only  just the profile
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright-core';
 import { build, preview } from 'vite';
 import { expectedModifiers } from './levelCurve.ts';
 
 const QUICK = process.argv.includes('--quick');
-const PROFILE = process.argv.includes('--profile');
+const PROFILE_ONLY = process.argv.includes('--profile-only');
+const PROFILE = PROFILE_ONLY || process.argv.includes('--profile');
 const THROTTLES = QUICK ? [4] : [4, 6];
 const WINDOW = QUICK ? 150 : 300;
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, locale: 'ko-KR' };
@@ -137,23 +139,58 @@ async function profile(page, base) {
   await sampleFrames(page, 600);
   const { profile: prof } = await cdp.send('Profiler.stop');
   await cdp.detach();
+  // Name functions by their class in the unminified bundle ("Effects.update" rather than "update").
+  const dir = 'artifacts/dist-profile/assets';
+  const bundle = (await readFile(`${dir}/${(await readdir(dir)).find((f) => f.startsWith('index-') && f.endsWith('.js'))}`, 'utf8')).split('\n');
+  const classAt = [];
+  let current = '';
+  for (const line of bundle) {
+    const m = /^var (\w+) = class\b/.exec(line) ?? /^\s*var (\w+) = new Class\(/.exec(line);
+    if (m) current = m[1];
+    classAt.push(current);
+  }
   const byId = new Map(prof.nodes.map((n) => [n.id, n]));
+  const parent = new Map();
+  for (const n of prof.nodes) for (const c of n.children ?? []) parent.set(c, n.id);
+  const label = (node) => {
+    const f = node.callFrame;
+    const name = f.functionName || '(anonymous)';
+    const cls = f.lineNumber >= 0 ? classAt[f.lineNumber] : '';
+    return cls && name !== cls ? `${cls}.${name}` : name;
+  };
   const self = new Map();
+  const inclusive = new Map();
   let total = 0;
   for (let i = 0; i < prof.samples.length; i++) {
     const node = byId.get(prof.samples[i]);
-    const name = node.callFrame.functionName || '(anonymous)';
+    const name = node.callFrame.functionName;
     if (name === '(idle)' || name === '(program)' || name === '(garbage collector)') continue;
-    const file = node.callFrame.url.split('/').slice(-2).join('/').replace(/\?.*$/, '');
-    const key = `${name}  ${file}:${node.callFrame.lineNumber + 1}`;
     const ms = (prof.timeDeltas[i] ?? 0) / 1000;
-    self.set(key, (self.get(key) ?? 0) + ms);
     total += ms;
+    const key = label(node);
+    self.set(key, (self.get(key) ?? 0) + ms);
+    // Inclusive: every distinct function on the stack gets the sample once.
+    const seen = new Set();
+    for (let id = node.id; id !== undefined; id = parent.get(id)) {
+      const k = label(byId.get(id));
+      if (seen.has(k)) continue;
+      seen.add(k);
+      inclusive.set(k, (inclusive.get(k) ?? 0) + ms);
+    }
   }
-  const rows = [...self].sort((a, b) => b[1] - a[1]).slice(0, 15);
+  const table = (map, n) =>
+    [...map]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, n)
+      .map(([k, v]) => `${v.toFixed(1).padStart(7)}ms ${((v / total) * 100).toFixed(1).padStart(5)}%  ${k}`);
   return [
-    `Self time over 600 frames (stress stage, 4× CPU throttle), total ${total.toFixed(0)}ms of JS:`,
-    ...rows.map(([k, v]) => `${v.toFixed(1).padStart(7)}ms ${((v / total) * 100).toFixed(1).padStart(5)}%  ${k}`),
+    `Stress stage, 600 frames at 4× CPU throttle: ${total.toFixed(0)}ms of JS (${(total / 600).toFixed(2)}ms per frame).`,
+    '',
+    'Self time:',
+    ...table(self, 20),
+    '',
+    'Inclusive time:',
+    ...table(inclusive, 40),
   ].join('\n');
 }
 
@@ -171,7 +208,7 @@ async function main() {
     const base = 'http://localhost:4176/';
     const context = await browser.newContext(PHONE);
     const errors = [];
-    for (const throttle of THROTTLES) {
+    for (const throttle of PROFILE_ONLY ? [] : THROTTLES) {
       for (const scenario of SCENARIOS) {
         // A fresh tab per run, so one battle's leftovers never slow the next.
         const page = await context.newPage();
@@ -198,7 +235,19 @@ async function main() {
     await browser.close();
   }
 
+  if (PROFILE_ONLY) return;
   await writeFile('artifacts/perf.json', JSON.stringify(results, null, 2));
+
+  // Budget gate (CI): at 4× slower CPU, a frame's CPU work stays under half the 16.6ms frame (the rest is
+  // the GPU's), game logic under 4ms and draw calls under 20.
+  const at4 = results.filter((r) => r.throttle === 4);
+  const checks = {
+    'avg frame CPU <= 8ms at 4x': at4.every((r) => r.avg <= 8),
+    'logic <= 4ms at 4x': at4.every((r) => r.logic <= 4),
+    'draw calls <= 20': results.every((r) => r.drawCalls <= 20),
+  };
+  for (const [name, ok] of Object.entries(checks)) console.log(ok ? 'PASS' : 'FAIL', name);
+  if (Object.values(checks).includes(false)) process.exitCode = 1;
   if (QUICK) return;
 
   const lines = [];
@@ -209,6 +258,8 @@ async function main() {
   lines.push('- 헤드리스 브라우저에는 GPU가 없어서 화면 주사율 대신 한 프레임(1/60초)씩 직접 돌리며 자바스크립트 시간(게임 로직 + 그리기 준비)을 잽니다. GPU가 픽셀을 칠하는 시간은 빠져 있고, 그건 휴대폰의 `?debug=1`로 봅니다.');
   lines.push(`- 전투마다 시작, 도로 중간, 보스전에서 ${WINDOW}프레임씩 잽니다. 스테이지 10, 20은 그 시점에 예상되는 피난처 강화를 적용했습니다.`);
   lines.push('- 1% 저점 = 가장 느린 1% 프레임의 시간(99번째 백분위). 예산은 한 프레임 16.6ms, 로직 4ms, 드로우 콜 20회, 메모리 250MB.');
+  lines.push('- 측정용 조종은 게이트만 고르고 장애물은 피하지 않아서, 스테이지 20은 도로 중간 전에 무리가 전멸해 시작 구간만 잽니다(프레임 수가 적어 1% 저점이 가장 느린 3프레임으로 정해집니다).');
+  lines.push('- CI(`--quick`)는 4배 조건에서 평균 프레임 CPU 8ms, 로직 4ms, 드로우 콜 20회를 넘으면 실패합니다.');
   lines.push('');
   lines.push('| CPU | 장면 | 평균 프레임 CPU | 1% 저점 | 최대 | 로직 | 그리기 준비 | 드로우 콜 | 유닛 스프라이트 | JS 힙 |');
   lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
@@ -218,6 +269,7 @@ async function main() {
     );
   }
   lines.push('');
+  lines.push('어떤 함수를 어떻게 고쳤는지는 [perf-fixes.md](perf-fixes.md)에 있습니다.');
   await writeFile('docs/perf.md', `${lines.join('\n')}\n`);
 }
 

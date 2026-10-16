@@ -10,7 +10,7 @@
 
 - Phaser 3.90 (WebGL, 캔버스 대체) + TypeScript(strict) + Vite
 - 세로 화면. 설계 해상도 720×1280, `Scale.EXPAND`로 긴 화면은 높이가 늘어난다. 위치는 항상 `layout(width, height)`에서 현재 크기로 계산한다(`BaseScene`).
-- 배포: `main`에 머지되면 GitHub Actions가 GitHub Pages로 배포. PR에서는 타입 검사와 빌드만.
+- 배포: `main`에 머지되면 GitHub Actions가 GitHub Pages로 배포. PR마다 타입 검사, 규칙 검사, 빌드와 성능 검사(흐름 검사, 30판 누수 검사, CPU 4배 느린 조건 측정)가 돌고, 예산을 넘으면 실패한다.
 - 앱 포장(9단계부터): Capacitor. 그래서 경로는 상대 경로(`base: './'`)를 유지한다.
 
 ## 성능 예산
@@ -33,12 +33,18 @@
 3. **오브젝트 풀링**: 총알, 좀비, 파티클, 데미지 숫자는 `src/core/Pool.ts`로 재사용한다. `update()` 안에서 `new`, 배열/객체 리터럴, 클로저 생성, `filter/map` 금지.
 4. **텍스처 아틀라스 하나로**: 전투 그림은 한 장의 아틀라스에 모은다. 매 프레임 바뀌는 글자는 `BitmapText`로 쓴다(`Text`는 바뀔 때마다 텍스처를 다시 올린다). `Graphics`를 매 프레임 다시 그리지 않는다.
 5. **고정 시간 간격 로직**: 게임 로직은 `src/core/FixedTimestep.ts`로 1/60초 단위로 돌리고, 그리기는 화면 주사율을 따른다. 120Hz 폰에서도 결과가 같아야 한다.
-6. **해상도 상한**: 캔버스 픽셀/CSS 픽셀 비율은 최대 2(`MAX_DPR`). 저사양 모드에서는 더 낮춘다(8단계).
+6. **해상도 상한**: 캔버스 픽셀/CSS 픽셀 비율은 최대 2(`MAX_DPR`). 저사양 모드에서는 캔버스를 75%로 그린다(`core/quality.ts`).
 7. **발열과 배터리**: 앱이 뒤로 가면 루프가 멈추고 전투는 일시정지 창으로 돌아온다. 움직임이 적은 화면(로비, 기지)은 30fps로 낮춘다(6단계).
 8. **항상 측정**: `?debug=1`이면 FPS, 프레임/로직/렌더 시간, 스프라이트 수, 드로우 콜이 화면 구석에 뜬다(`src/debug/`, 일반 플레이어는 이 코드를 내려받지 않는다). 모든 작업의 완료 보고에 이 수치를 포함한다.
-9. **자동 성능 검사**: `npm run build && npm run smoke`가 휴대폰 크기 헤드리스 브라우저로 로비 → 전투 → 일시정지 흐름과 로직 시간, 드로우 콜을 검사하고 `artifacts/`에 스크린샷을 남긴다. 2단계부터 스트레스 장면, 8단계부터 CI에 넣는다.
+9. **자동 성능 검사**: `npm run build && npm run smoke`가 휴대폰 크기 헤드리스 브라우저로 타이틀 → 로비 → 전투 → 일시정지 → 결과 → 피난처 흐름, 저장 복구, 스트레스 장면(병력 5,000)과 저사양 모드, 로직 시간, 드로우 콜, 화면 전환 시간을 검사하고 `artifacts/`에 스크린샷을 남긴다. `npm run leak`은 전투 30판 뒤 메모리·텍스처·리스너가 늘지 않는지, `npm run perf`는 CPU를 4·6배 느리게 한 조건의 프레임 시간을 잰다(`docs/perf.md`). 셋 다 PR마다 CI에서 돈다.
 
 헤드리스 브라우저는 GPU가 없어 픽셀을 CPU로 그리므로 FPS가 휴대폰보다 훨씬 낮게 나온다(빈 화면도 약 17fps). 그 FPS로 판단하지 말고 로직 시간과 드로우 콜을 보고, 실제 FPS는 휴대폰의 `?debug=1`로 확인한다.
+
+## 저사양 모드
+
+- 설정의 저사양 모드는 자동/켜기/끄기. 자동이면 전투 중 평균 프레임이 20ms를 3초 넘게 넘을 때 켜지고(`SlowFrameDetector`), 그 기기에서는 다음 실행에도 켜진다(`save.data.device.lowSpec`).
+- 켜지면 캔버스 75% 해상도, 파티클 절반, 화면 유닛 최대 120개(`quality.renderScale/particleScale/unitScale`).
+- 캔버스 크기가 설계 단위와 달라질 수 있으므로 장면은 크기를 `layout(width, height)` 인자나 `viewWidth/viewHeight(this.scale)`로 얻고, 포인터 좌표는 `quality.renderScale`로 나눈다. 카메라 확대는 `BaseScene`이 맞춘다.
 
 ## 폴더 구조
 
@@ -46,7 +52,7 @@
 src/
   main.ts              게임 설정, 장면 등록, ?debug=1이면 성능 측정기 로드
   config.ts            설계 해상도, 장면/텍스처 키, 색, 폰트
-  core/                장면과 무관한 엔진 도구 (FixedTimestep, Pool, frameRate: 로비/결과/일시정지 30fps)
+  core/                장면과 무관한 엔진 도구 (FixedTimestep, Pool, frameRate: 로비/결과/일시정지 30fps, quality: 저사양 모드)
   sim/                 전투 규칙 (Phaser 없음). 게임과 노드 시뮬레이터가 같은 코드를 씀
   meta/                피난처 규칙 (건물 비용·효과, 방치 보상, 시간 되돌림 방지). 역시 Phaser 없음
   data/                units/zombies/levels/economy/shelter JSON. 수치는 여기서만 바꾼다
@@ -63,6 +69,8 @@ src/
 public/                manifest.webmanifest, 아이콘, licenses.txt (그대로 복사됨)
 assets/                안드로이드 아이콘/스플래시 원본 (9단계 Capacitor용, 웹 빌드에는 안 들어감)
 scripts/smoke.mjs      헤드리스 휴대폰 검사
+scripts/perf.mjs       CPU 4·6배 느린 조건 측정 → docs/perf.md (--profile: 함수별 CPU 표)
+scripts/leak.mjs       전투 30판 메모리 누수 검사
 scripts/make-icons.mjs 앱 아이콘과 스플래시를 캔버스로 그려 PNG 저장
 scripts/gen-levels.ts  스테이지 20개 생성 + 시뮬레이터로 난이도 맞춤 (levelCurve.ts의 목표 곡선)
 scripts/balance.ts     스테이지별 승률/남은 병력 표 → docs/balance.md
@@ -82,9 +90,10 @@ tests/                 브라우저 없이 도는 규칙 검사 (npm test, PR마
 - 버튼은 손을 뗄 때 실행한다(`ui/Button.ts`). 터치 영역은 최소 80×80 게임 단위.
 - URL 플래그: `?debug=1` 성능 오버레이와 모든 스테이지 선택, `?stress=1` 병력 5,000 스트레스 스테이지, `?bench=N` 전투 장면에 움직이는 스프라이트 N개.
 - 화면 문구는 코드에 쓰지 않고 `src/i18n/ko.ts`에 키로 넣은 뒤 `en.ts`에도 같은 키를 넣는다(`npm test`가 빠진 키와 `{자리표시}` 차이를 잡는다). 스테이지·유닛·좀비·건물 이름은 한국어는 JSON, 영어는 `en.ts`의 표.
-- 저장 형식을 바꾸면 `SAVE_VERSION`을 올리고 `MIGRATIONS`에 이전 버전 변환 함수를 넣는다. 저장소 접근은 `platform/storage.ts` 한 곳(앱에서는 Capacitor 저장소로 교체).
+- 저장 형식에서 기존 필드의 모양이나 뜻을 바꾸면 `SAVE_VERSION`을 올리고 `MIGRATIONS`에 이전 버전 변환 함수를 넣는다. 기본값이 있는 새 필드는 `freshSave`와 정규화(normalize)에 넣는 것으로 충분하다. 저장소 접근은 `platform/storage.ts` 한 곳(앱에서는 Capacitor 저장소로 교체).
 - 튜토리얼은 손가락 + 한 줄 글(`ui/Coach.ts`)만 쓰고, 배운 단계는 `save.data.tutorial`에 남긴다.
 - 화면 전환은 0.3초 이내: 장면 `create()` 작업 + 0.16초 페이드. 큰 그림은 처음 한 번만 그리고 텍스처를 재사용한다.
+- 매 프레임 `setDepth`를 부르지 않는다. 깊이를 바꾸면 장면 전체가 다시 정렬된다. 순서가 실제로 바뀔 때만 바꾸고, 블렌드 모드가 다른 것끼리는 깊이 대역을 나눈다. 위치·크기·투명도도 값이 바뀔 때만 쓰고, `BitmapText` 너비는 글자가 바뀔 때만 잰다([docs/perf-fixes.md](docs/perf-fixes.md)).
 - 외부 그림·소리·글꼴을 넣으면 `CREDITS.md`에 출처와 라이선스를 적는다. 상업적 이용이 안 되는 자료는 넣지 않는다.
 - 의존성 버전은 고정(`^` 없이)하고, 새 라이브러리는 용량과 성능 영향을 확인한 뒤 추가한다.
 
@@ -95,6 +104,8 @@ npm install          # 처음 한 번
 npm run dev          # 개발 서버 (같은 와이파이의 휴대폰에서도 접속 가능)
 npm run build        # 타입 검사 + 빌드 → dist/
 npm run smoke        # 빌드 결과를 휴대폰 크기 헤드리스 브라우저로 검사
+npm run leak         # 전투 30판 메모리 누수 검사 (빌드 후)
+npm run perf         # CPU 4·6배 느린 조건 측정 → docs/perf.md (빌드 후, --quick: 4배만)
 npm run gen-levels   # 스테이지 다시 생성 (약 10분)
 npm run balance      # 밸런스 표 docs/balance.md
 npm run icons        # 앱 아이콘/스플래시 다시 그리기

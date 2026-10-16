@@ -67,8 +67,9 @@ src/
   platform/            브라우저/기기 대응 (URL 플래그, 저장소, 진동, 확대·스크롤 방지, 노치 여백, 뒤로 가기)
                        app.ts는 앱 안에서만 native.ts(앱 저장소, 뒤로 가기 버튼, 스플래시)를 동적으로 불러온다
   debug/               성능 측정기와 오버레이 (?debug=1 전용)
+  services/            광고·결제·통계 인터페이스. web.ts는 웹용 가짜(광고 3초, 가짜 결제 창), native.ts는 AdMob·Play 결제·Firebase
   ui/                  공용 UI 위젯 (Button, IconButton, Toggle, Coach: 튜토리얼 손가락과 한 줄 글)
-  scenes/              Boot → Preload → Title → Lobby ⇄ Shelter → Battle (+ Pause, Result, Settings 오버레이)
+  scenes/              Boot → Preload → Title → Lobby ⇄ Shelter → Battle (+ Pause, Result, Settings, Shop 오버레이)
 public/                manifest.webmanifest, 아이콘, licenses.txt, privacy.html (그대로 복사됨)
 android/               Capacitor 안드로이드 프로젝트 (아이콘·스플래시는 npm run icons가 그림)
 scripts/smoke.mjs      헤드리스 휴대폰 검사
@@ -81,7 +82,7 @@ scripts/balance.ts     스테이지별 승률/남은 병력 표 → docs/balance
 scripts/gen-shelter.ts 피난처 건물 레벨 1~20 비용·효과 곡선 → src/data/shelter.json
 scripts/playtime.ts    가상 플레이어로 20스테이지까지 걸리는 플레이 시간 추정 → docs/playtime.md
 tests/                 브라우저 없이 도는 규칙 검사 (npm test, PR마다 실행)
-docs/                  android.md(앱 출시 안내), store-listing.md(스토어 문구), perf.md, balance.md, playtime.md
+docs/                  android.md(앱 출시 안내), monetization.md(광고·결제·통계 켜기), store-listing.md(스토어 문구), perf.md, balance.md, playtime.md
 .github/workflows/     ci.yml (PR 검사), deploy.yml (Pages 배포), android.yml (APK/AAB)
 ```
 
@@ -92,6 +93,9 @@ docs/                  android.md(앱 출시 안내), store-listing.md(스토어
 - TypeScript strict, `any` 금지. 장면/텍스처 키는 `config.ts`의 상수를 쓴다.
 - 장면은 `BaseScene`을 상속하고 위치 계산은 `layout()`에만 둔다. 노치 여백은 `this.insets`.
 - 장면이 `game.events`나 `scale`에 등록한 리스너는 `SHUTDOWN`에서 해제한다.
+- 광고·결제·통계는 `services.ads / purchases / analytics`로만 부른다. 상품, 가격 표시, 광고 보상 배수는 `data/shop.json`. 결제가 끝나면 `game/shop.ts`의 `grantProduct`로만 지급한다(바로 저장, 비소모품은 한 번만).
+- 앱은 기본으로 Google 테스트 광고를 쓴다. 진짜 AdMob ID와 Firebase는 release 빌드 때 GitHub 변수 `ADMOB_APP_ID`, `ADMOB_REWARDED_ID`와 비밀값 `GOOGLE_SERVICES_JSON`으로만 들어간다(`docs/monetization.md`). 코드에 진짜 ID를 쓰지 않는다.
+- 통계 이벤트: `stage_start`, `stage_end`, `upgrade`, `tutorial_step`, `ad_reward`, `shop_open`, `purchase`, `restore`. 이름은 소문자와 밑줄, 40자 이내. 새로 넣으면 `docs/monetization.md` 목록도 고친다.
 - 뒤로 가기(안드로이드 뒤로 버튼, 웹은 Escape)는 맨 위에서 돌고 있는 장면의 `onBack()`이 처리한다. 겹쳐 뜨는 창은 닫고, 전투는 일시정지, 결과·피난처는 로비로. `false`를 돌려주면(타이틀, 로비) 앱이 백그라운드로 간다.
 - 앱에서만 도는 코드는 `platform/native.ts`(와 거기서 부르는 파일)에 둔다. 웹 사용자는 그 코드를 내려받지 않는다.
 - 버튼은 손을 뗄 때 실행한다(`ui/Button.ts`). 터치 영역은 최소 80×80 게임 단위.

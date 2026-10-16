@@ -804,6 +804,34 @@ const icons: FrameSpec[] = [
     },
   },
   {
+    name: 'i_cart',
+    w: 48,
+    h: 48,
+    draw: (c) => {
+      c.lineWidth = 4;
+      c.lineJoin = 'round';
+      c.strokeStyle = W;
+      c.beginPath();
+      c.moveTo(3, 8);
+      c.lineTo(10, 8);
+      c.lineTo(16, 32);
+      c.lineTo(38, 32);
+      c.stroke();
+      polygon(c, [12, 13, 44, 13, 39, 27, 15, 27], W);
+      circle(c, 19, 40, 4, W);
+      circle(c, 35, 40, 4, W);
+    },
+  },
+  {
+    name: 'i_ad',
+    w: 48,
+    h: 48,
+    draw: (c) => {
+      roundRect(c, 4, 9, 40, 30, 6, W);
+      cutout(c, () => polygon(c, [19, 16, 19, 32, 32, 24], '#000'));
+    },
+  },
+  {
     name: 'i_home',
     w: 48,
     h: 48,

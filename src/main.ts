@@ -8,6 +8,7 @@ import { resolveLang, setLang } from './i18n';
 import { flags } from './platform/flags';
 import { handleBack } from './platform/back';
 import { installMobileGuards } from './platform/mobile';
+import { eventLog } from './services/web';
 import { BattleScene } from './scenes/BattleScene';
 import { BootScene } from './scenes/BootScene';
 import { LobbyScene } from './scenes/LobbyScene';
@@ -16,6 +17,7 @@ import { PreloadScene } from './scenes/PreloadScene';
 import { ResultScene } from './scenes/ResultScene';
 import { SettingsScene } from './scenes/SettingsScene';
 import { ShelterScene } from './scenes/ShelterScene';
+import { ShopScene } from './scenes/ShopScene';
 import { TitleScene } from './scenes/TitleScene';
 
 installMobileGuards();
@@ -51,7 +53,7 @@ const game = new Phaser.Game({
   // The limiter is on at a rate no screen reaches, so calm scenes can lower it (core/frameRate.ts).
   fps: { target: 60, limit: 240 },
   input: { activePointers: 2 },
-  scene: [BootScene, PreloadScene, TitleScene, LobbyScene, ShelterScene, BattleScene, PauseScene, ResultScene, SettingsScene],
+  scene: [BootScene, PreloadScene, TitleScene, LobbyScene, ShelterScene, BattleScene, PauseScene, ResultScene, SettingsScene, ShopScene],
 });
 
 // Browsers only allow sound after a touch; every touch makes sure audio is running.
@@ -75,7 +77,7 @@ if (flags.debug) {
         const monitor = new PerfMonitor(game);
         new DebugOverlay(monitor);
         Object.assign(window, {
-          __dm: { game, monitor, save, quality, greedySide, setLowSpec: (low: boolean) => setLowSpec(game, low) },
+          __dm: { game, monitor, save, quality, greedySide, events: eventLog, setLowSpec: (low: boolean) => setLowSpec(game, low) },
         });
       };
       if (game.isRunning) start();

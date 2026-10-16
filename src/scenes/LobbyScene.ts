@@ -38,6 +38,7 @@ export class LobbyScene extends BaseScene {
   private shelterButton!: Button;
   private shelterBadge!: Phaser.GameObjects.Image;
   private settingsButton!: IconButton;
+  private shopButton!: IconButton;
   private debugNote!: Phaser.GameObjects.Text;
   private version!: Phaser.GameObjects.Text;
   /** Points at the shelter until the first building upgrade. */
@@ -116,6 +117,11 @@ export class LobbyScene extends BaseScene {
     // Red dot when an upgrade is affordable or an hour of idle resources is waiting.
     this.shelterBadge = this.add.image(0, 0, ATLAS, 'circle').setTint(0xff3b3b).setScale(0.45).setVisible(ShelterScene.hasNews());
     this.settingsButton = new IconButton(this, 0, 0, 'i_gear', () => this.openSettings(), { size: 88 });
+    this.shopButton = new IconButton(this, 0, 0, 'i_cart', () => this.openShop(), { size: 88 });
+    // A supply crate bought in the shop can make an upgrade affordable.
+    const onResume = () => this.shelterBadge.setVisible(ShelterScene.hasNews());
+    this.events.on(Phaser.Scenes.Events.RESUME, onResume);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.RESUME, onResume));
     this.debugNote = this.add
       .text(0, 0, flags.debug ? t('lobby.debugAll') : '', { fontFamily: FONT_FAMILY, fontSize: '22px', color: '#ff9f6b' })
       .setOrigin(0.5);
@@ -157,6 +163,11 @@ export class LobbyScene extends BaseScene {
   private openSettings(): void {
     this.scene.pause();
     this.scene.launch(SceneKeys.Settings, { from: SceneKeys.Lobby });
+  }
+
+  private openShop(): void {
+    this.scene.pause();
+    this.scene.launch(SceneKeys.Shop, { from: SceneKeys.Lobby });
   }
 
   private refresh(): void {
@@ -231,6 +242,7 @@ export class LobbyScene extends BaseScene {
     this.logo.setPosition(cx, logoY).setScale(Math.min(1, (width - 60) / 640));
     this.subtitle.setPosition(cx, logoY + 180);
     this.settingsButton.setPosition(width - 64, this.insets.top + 64);
+    this.shopButton.setPosition(64, this.insets.top + 64);
 
     const cardY = Math.max(height * 0.5, logoY + 380);
     this.card.setPosition(cx, cardY);

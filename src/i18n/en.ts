@@ -80,6 +80,39 @@ export const en: Record<MessageKey, string> = {
   'tut.shelterLobby': 'Upgrade buildings in the shelter',
   'tut.shelterTap': 'Tap a building to upgrade it',
   'tut.upgradeTap': 'Tap Upgrade',
+
+  'result.doubleAd': 'Watch ad: 2× reward',
+  'result.doubleFree': 'Get 2× reward',
+  'result.adLoading': 'Loading ad…',
+  'result.adMissed': 'No reward this time. Try again',
+  'result.doubled': 'Reward doubled',
+
+  'shop.title': 'Shop',
+  'shop.remove_ads.name': 'Remove ads',
+  'shop.remove_ads.desc': 'Double battle rewards instantly, no ads',
+  'shop.supply_crate.name': 'Supply crate',
+  'shop.supply_crate.desc': 'Food 400, scrap 400, fuel 30',
+  'shop.owned': 'Owned',
+  'shop.restore': 'Restore purchases',
+  'shop.waiting': 'Contacting the store…',
+  'shop.thanks': '{name} purchased!',
+  'shop.cancelled': 'Purchase cancelled',
+  'shop.restored': 'Purchases restored',
+  'shop.nothingToRestore': 'Nothing to restore',
+  'shop.unavailable': 'Could not reach the store',
+
+  'settings.adPrivacy': 'Ad privacy',
+  'settings.open': 'Open',
+
+  'fake.adTitle': 'Ad (test)',
+  'fake.adBody': 'A real ad plays here\n{n}s',
+  'fake.adDone': 'Ad finished',
+  'fake.skip': 'Skip',
+  'fake.claim': 'Claim reward',
+  'fake.payTitle': 'Checkout (test)',
+  'fake.payBody': '{name}\n{price}\n\nWeb test: no money is charged',
+  'fake.buy': 'Buy',
+  'fake.cancel': 'Cancel',
 };
 
 export const EN_STAGE_NAMES: readonly string[] = [

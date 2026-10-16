@@ -1,0 +1,5 @@
+# AdMob 판매자 확인 파일 (app-ads.txt)
+# AdMob 게시자 ID를 받으면 아래 줄의 pub-0000000000000000을 바꾸고 맨 앞의 #을 지우세요.
+# 이 파일은 개발자 웹사이트의 맨 위 주소(https://joongyub.github.io/app-ads.txt)에 있어야 AdMob이 찾습니다.
+# 자세한 방법: docs/monetization.md
+# google.com, pub-0000000000000000, DIRECT, f08c47fec0942fa0

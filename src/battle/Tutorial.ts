@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { viewWidth } from '../core/quality';
 import { save } from '../game/save';
 import { t } from '../i18n';
+import { services } from '../services';
 import { greedySide } from '../sim/agent';
 import type { BattleSim, SimEvent, SimGate } from '../sim/BattleSim';
 import { ROAD_CENTER, ROAD_LEFT, ROAD_RIGHT } from '../sim/types';
@@ -120,6 +121,7 @@ export class BattleTutorial {
   private learn(step: Step): void {
     save.data.tutorial[step] = true;
     save.commit();
+    services.analytics.log('tutorial_step', { step });
     if (this.step === step) {
       this.step = null;
       this.coach.hide();

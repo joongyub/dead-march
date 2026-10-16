@@ -3,6 +3,7 @@ import { ATLAS, formatCount, NUM_FONT } from '../art/atlas';
 import { audio } from '../audio/Audio';
 import { zombieFrame } from '../art/sprites';
 import { Colors } from '../config';
+import { quality } from '../core/quality';
 import type { SimHorde } from '../sim/BattleSim';
 import { Depth } from './depth';
 import type { Effects } from './Effects';
@@ -148,7 +149,9 @@ export class HordeView {
       }
     }
     if (!v) return;
-    const k = Math.min(h.count, PER_HORDE[h.kindId] ?? 24, MAX_PER_HORDE, this.freeCount);
+    // Low-spec mode leaves part of the sprite pool unused (core/quality.ts).
+    const free = this.freeCount - (MAX_ZOMBIE_SPRITES - Math.round(MAX_ZOMBIE_SPRITES * quality.unitScale));
+    const k = Math.min(h.count, PER_HORDE[h.kindId] ?? 24, MAX_PER_HORDE, free);
     if (k <= 0) return;
     v.horde = h;
     v.k = k;

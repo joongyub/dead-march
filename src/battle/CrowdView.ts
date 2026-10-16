@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { ATLAS } from '../art/atlas';
 import { UNIT_FRAMES } from '../art/sprites';
+import { quality } from '../core/quality';
 import { TIER_COUNT } from '../sim/types';
 import { Depth } from './depth';
 import type { Effects } from './Effects';
@@ -33,6 +34,7 @@ export class CrowdView {
   private slotsFor = -1;
   private slotsRadius = -1;
   private lastPower = -1;
+  private lastCap = -1;
   private time = 0;
   /** Screen position of the crowd center, updated every frame. */
   x = 0;
@@ -53,7 +55,10 @@ export class CrowdView {
   sync(counts: readonly number[], power: number, radius: number, fx: Effects, roadX: number, distance: number): void {
     let same = true;
     for (let i = 0; i < TIER_COUNT; i++) if (counts[i] !== this.lastCounts[i]) same = false;
-    if (same && radius === this.slotsRadius) return;
+    // Low-spec mode shows fewer units (core/quality.ts).
+    const cap = Math.round(MAX_CROWD_SPRITES * quality.unitScale);
+    if (same && radius === this.slotsRadius && cap === this.lastCap) return;
+    this.lastCap = cap;
     const lost = this.lastPower >= 0 && power < this.lastPower;
     this.lastPower = power;
     for (let i = 0; i < TIER_COUNT; i++) this.lastCounts[i] = counts[i];
@@ -64,8 +69,8 @@ export class CrowdView {
     let drawn = 0;
     for (let i = TIER_COUNT - 1; i >= 0; i--) {
       let d = counts[i];
-      if (total > MAX_CROWD_SPRITES) d = counts[i] > 0 ? Math.max(1, Math.floor((counts[i] * MAX_CROWD_SPRITES) / total)) : 0;
-      d = Math.min(d, MAX_CROWD_SPRITES - drawn);
+      if (total > cap) d = counts[i] > 0 ? Math.max(1, Math.floor((counts[i] * cap) / total)) : 0;
+      d = Math.min(d, cap - drawn);
       this.display[i] = d;
       drawn += d;
     }

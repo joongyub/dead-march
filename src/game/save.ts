@@ -40,6 +40,8 @@ export interface SaveData {
   idle: { collectedAt: number; lastSeen: number };
   /** Purchases and ad-free flag (stage 10). */
   shop: { noAds: boolean; owned: string[] };
+  /** What the game learned about this device: battles ran slow, so 'auto' low-spec mode is on. */
+  device: { lowSpec: boolean };
 }
 
 export function freshSave(now = Date.now()): SaveData {
@@ -54,6 +56,7 @@ export function freshSave(now = Date.now()): SaveData {
     stats: { battles: 0, wins: 0, zombies: 0 },
     idle: { collectedAt: now, lastSeen: now },
     shop: { noAds: false, owned: [] },
+    device: { lowSpec: false },
   };
 }
 
@@ -76,6 +79,7 @@ function normalize(raw: Record<string, unknown>): SaveData {
   merged.stats = { ...base.stats, ...(raw.stats as object) };
   merged.idle = { ...base.idle, ...(raw.idle as object) };
   merged.shop = { ...base.shop, ...(raw.shop as object) };
+  merged.device = { ...base.device, ...(raw.device as object) };
   merged.best = { ...(raw.best as object) };
   merged.buildings = { ...(raw.buildings as object) };
   merged.version = SAVE_VERSION;

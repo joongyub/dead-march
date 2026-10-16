@@ -7,11 +7,11 @@ export interface Insets {
   right: number;
 }
 
-/** Notch / home-indicator insets converted from CSS pixels into game units. */
-export function getSafeInsets(scale: Phaser.Scale.ScaleManager): Insets {
+/** Notch / home-indicator insets converted from CSS pixels into game units (renderScale: canvas pixels per unit). */
+export function getSafeInsets(scale: Phaser.Scale.ScaleManager, renderScale = 1): Insets {
   const probe = document.getElementById('safe-area-probe');
   const canvasCssHeight = scale.canvas?.getBoundingClientRect().height || window.innerHeight;
-  const ratio = scale.height / canvasCssHeight;
+  const ratio = scale.height / renderScale / canvasCssHeight;
   if (!probe) return { top: 0, bottom: 0, left: 0, right: 0 };
 
   const style = getComputedStyle(probe);

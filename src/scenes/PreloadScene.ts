@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { Colors, FONT_FAMILY, SceneKeys, TextureKeys } from '../config';
 import { buildAtlas } from '../art/atlas';
 import { audio } from '../audio/Audio';
+import { lowSpecWanted, setLowSpec } from '../core/quality';
 import { save } from '../game/save';
 import { resolveLang, setLang, t } from '../i18n';
 
@@ -33,6 +34,7 @@ export class PreloadScene extends Phaser.Scene {
     void save.load().then(() => {
       // The atlas draws pop-up words, so the language must be known first.
       setLang(resolveLang(save.data.settings.lang));
+      setLowSpec(this.game, lowSpecWanted(save.data.settings.lowSpec, save.data.device.lowSpec));
       buildAtlas(this);
       audio.setEnabled(save.data.settings.sound);
       // Sounds render in the background; the lobby does not wait for them.

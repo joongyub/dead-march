@@ -12,9 +12,10 @@ import { Hud } from '../battle/Hud';
 import { stressLevel } from '../battle/stressLevel';
 import { Track } from '../battle/Track';
 import { BattleTutorial } from '../battle/Tutorial';
-import { Colors, DESIGN_WIDTH, SceneKeys } from '../config';
+import { Colors, DESIGN_WIDTH, FONT_FAMILY, SceneKeys } from '../config';
 import { setFrameCap } from '../core/frameRate';
 import { FixedTimestep } from '../core/FixedTimestep';
+import { lowSpecWanted, quality, setLowSpec, SlowFrameDetector, viewHeight, viewWidth } from '../core/quality';
 import { recordBattle } from '../game/progress';
 import { stageName, t, zombieName } from '../i18n';
 import { shelterModifiers } from '../meta/shelter';
@@ -83,6 +84,7 @@ export class BattleScene extends BaseScene {
   private meleeTimer = 0;
   private lastMergePopup = 0;
   private readonly point = { x: 0, y: 0 };
+  private readonly slowFrames = new SlowFrameDetector();
   private readonly stepFn = (dt: number) => this.step(dt);
 
   private benchSprites: Phaser.GameObjects.Image[] = [];
@@ -112,9 +114,11 @@ export class BattleScene extends BaseScene {
     this.powerSeen = this.sim.army.power;
     this.meleeLoss = 0;
     this.meleeTimer = 0;
+    this.slowFrames.reset();
 
     this.track = new Track(this, this.level.id);
     this.fx = new Effects(this, Depth.Decals, Depth.Fx, Depth.FxAdd, Depth.Labels);
+    this.fx.density = quality.particleScale;
     this.gates = new GateView(this);
     this.barricades = new BarricadeView(this);
     this.hordes = new HordeView(this);
@@ -205,6 +209,27 @@ export class BattleScene extends BaseScene {
       if (this.endTimer < 0) this.finish();
     }
     if (this.benchSprites.length > 0) this.stepBench(delta / 1000);
+    if (!quality.low && save.data.settings.lowSpec === 'auto' && this.slowFrames.push(delta)) this.enterLowSpec();
+  }
+
+  /** Battles keep running slow on this device: lighter settings from now on (and next launch). */
+  private enterLowSpec(): void {
+    save.data.device.lowSpec = true;
+    save.commit();
+    setLowSpec(this.game, lowSpecWanted(save.data.settings.lowSpec, true));
+    this.fx.density = quality.particleScale;
+    // A one-time note so the softer picture is not a mystery.
+    const note = this.add
+      .text(viewWidth(this.scale) / 2, this.insets.top + 250, t('battle.lowSpec'), {
+        fontFamily: FONT_FAMILY,
+        fontSize: '26px',
+        color: '#ffffff',
+        backgroundColor: 'rgba(8,10,14,0.75)',
+        padding: { x: 18, y: 10 },
+      })
+      .setOrigin(0.5)
+      .setDepth(Depth.HudText);
+    this.tweens.add({ targets: note, alpha: 0, delay: 2600, duration: 400, onComplete: () => note.destroy() });
   }
 
   openPause(): void {
@@ -234,14 +259,16 @@ export class BattleScene extends BaseScene {
 
   private onPointerDown(p: Phaser.Input.Pointer): void {
     this.dragging = true;
-    this.dragStartX = p.x;
+    this.dragStartX = p.x / quality.renderScale;
     this.dragStartTarget = this.targetX;
   }
 
   private onPointerMove(p: Phaser.Input.Pointer): void {
     if (!this.dragging || !p.isDown) return;
-    this.targetX = Phaser.Math.Clamp(this.dragStartTarget + (p.x - this.dragStartX) * DRAG_GAIN, ROAD_LEFT, ROAD_RIGHT);
-    this.tutorial.onDrag(p.x - p.prevPosition.x);
+    // Pointer positions are in canvas pixels; game units differ in low-spec mode.
+    const x = p.x / quality.renderScale;
+    this.targetX = Phaser.Math.Clamp(this.dragStartTarget + (x - this.dragStartX) * DRAG_GAIN, ROAD_LEFT, ROAD_RIGHT);
+    this.tutorial.onDrag((p.x - p.prevPosition.x) / quality.renderScale);
   }
 
   private onPointerUp(): void {
@@ -322,7 +349,7 @@ export class BattleScene extends BaseScene {
           break;
         case 'bossStart':
           audio.play('bossRoar');
-          fx.popup('w_boss', this.scale.width / 2, this.scale.height * 0.36, 1.4, 0xff7070);
+          fx.popup('w_boss', viewWidth(this.scale) / 2, viewHeight(this.scale) * 0.36, 1.4, 0xff7070);
           this.hud.showBoss();
           this.shake(220, 0.006);
           vibrate(60);
@@ -389,7 +416,7 @@ export class BattleScene extends BaseScene {
   private updateShooting(dt: number, distance: number): void {
     const sim = this.sim;
     if (sim.firePower <= 0 || sim.finished) return;
-    const rate = Math.min(34, 5 + this.crowd.count * 0.45);
+    const rate = Math.min(34, 5 + this.crowd.count * 0.45) * quality.particleScale;
     this.shotAcc += dt * rate;
     while (this.shotAcc >= 1) {
       this.shotAcc -= 1;

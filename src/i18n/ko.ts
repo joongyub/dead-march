@@ -34,6 +34,10 @@ export const ko = {
   'settings.langAuto': '자동',
   'settings.langNote': '언어를 바꾸면 게임이 다시 시작돼요',
   'settings.licenses': '오픈소스 라이선스',
+  'settings.lowSpec': '저사양 모드',
+  'settings.on': '켜기',
+  'settings.off': '끄기',
+  'battle.lowSpec': '저사양 모드로 바꿨어요 (설정에서 변경)',
 
   'result.powerLeft': '남은 병력 {n}',
   'result.kills': '처치한 좀비 {n}',

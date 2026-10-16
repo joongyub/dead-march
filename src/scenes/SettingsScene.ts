@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { ATLAS } from '../art/atlas';
 import { audio } from '../audio/Audio';
 import { Colors, FONT_FAMILY, SceneKeys } from '../config';
+import { lowSpecWanted, setLowSpec } from '../core/quality';
 import { save } from '../game/save';
 import { currentLang, resolveLang, t } from '../i18n';
 import { vibrate } from '../platform/haptics';
@@ -110,6 +111,20 @@ export class SettingsScene extends BaseScene {
         // Words are baked into the battle atlas, so a new language needs a fresh start.
         this.reloadOnClose = resolveLang(v) !== currentLang();
         this.note.setText(this.reloadOnClose ? t('settings.langNote') : '');
+      },
+    );
+    addChoice(
+      'i_chip',
+      t('settings.lowSpec'),
+      [
+        ['auto', t('settings.langAuto')],
+        ['on', t('settings.on')],
+        ['off', t('settings.off')],
+      ],
+      settings.lowSpec,
+      (v) => {
+        settings.lowSpec = v;
+        setLowSpec(this.game, lowSpecWanted(v, save.data.device.lowSpec));
       },
     );
     this.note = this.add

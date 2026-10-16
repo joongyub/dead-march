@@ -788,6 +788,22 @@ const icons: FrameSpec[] = [
     },
   },
   {
+    name: 'i_chip',
+    w: 48,
+    h: 48,
+    draw: (c) => {
+      roundRect(c, 12, 12, 24, 24, 4, W);
+      cutout(c, () => roundRect(c, 18, 18, 12, 12, 2, '#000'));
+      for (let i = 0; i < 3; i++) {
+        const p = 16 + i * 8;
+        line(c, p, 4, p, 12, W, 3);
+        line(c, p, 36, p, 44, W, 3);
+        line(c, 4, p, 12, p, W, 3);
+        line(c, 36, p, 44, p, W, 3);
+      }
+    },
+  },
+  {
     name: 'i_home',
     w: 48,
     h: 48,

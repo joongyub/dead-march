@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { viewWidth } from '../core/quality';
 import { save } from '../game/save';
 import { t } from '../i18n';
 import { greedySide } from '../sim/agent';
@@ -74,7 +75,7 @@ export class BattleTutorial {
         this.show('gate');
       }
     }
-    const width = this.scene.scale.width;
+    const width = viewWidth(this.scene.scale);
     switch (this.step) {
       case 'swipe':
         this.coach.sweepAt(roadX + sim.crowdX, crowdY + 130, 130);

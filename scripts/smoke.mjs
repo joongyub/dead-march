@@ -1,5 +1,5 @@
-// Headless phone-sized smoke test: builds nothing, serves dist/, drives lobby → battle → pause,
-// records the ?debug=1 performance numbers and saves screenshots to artifacts/.
+// Headless phone-sized smoke test: builds nothing, serves dist/, drives lobby → battle → pause → result,
+// runs the 5,000-army stress stage, records the ?debug=1 performance numbers and saves screenshots to artifacts/.
 //
 // Usage: npm run build && npm run smoke [-- --throttle=4]
 //
@@ -51,6 +51,17 @@ async function main() {
       await page.touchscreen.tap(pos.x, pos.y);
     };
     const size = () => page.evaluate(() => ({ w: window.__dm.game.scale.width, h: window.__dm.game.scale.height }));
+    // Taps a button by its scene field name, wherever the layout put it.
+    const tapButton = async (sceneKey, field) => {
+      const pos = await page.evaluate(
+        ([key, name]) => {
+          const b = window.__dm.game.scene.getScene(key)[name];
+          return { x: b.x, y: b.y };
+        },
+        [sceneKey, field],
+      );
+      await tapGame(pos.x, pos.y);
+    };
     const activeScenes = () =>
       page.evaluate(() => window.__dm.game.scene.getScenes(true).map((s) => s.scene.key));
     const measure = async (label, ms = 4000) => {
@@ -73,7 +84,7 @@ async function main() {
 
     const { w, h } = await size();
     results.gameSize = `${w}x${h}`;
-    await tapGame(w / 2, h * 0.68); // 출격
+    await tapButton('Lobby', 'startButton'); // 출격
     await sleep(800);
     results.scenesAfterStart = await activeScenes();
     await measure('battle');
@@ -90,30 +101,62 @@ async function main() {
       window.__dm.game.scene.isPaused('Battle'),
     );
     await page.screenshot({ path: `${OUT}/3-pause.png` });
-    await tapGame(w / 2, h * 0.52); // 계속하기
+    await tapButton('Pause', 'resumeButton'); // 계속하기
     await sleep(500);
     results.battleRunningAfterResume = await page.evaluate(() => window.__dm.game.scene.isActive('Battle'));
 
-    // Rendering cost with many sprites on screen.
+    // Play the rest of the stage at full speed (same rules, no rendering in between) → result screen.
+    results.finished = await page.evaluate(() => {
+      const battle = window.__battle;
+      for (let i = 0; i < 60 * 240 && !battle.sim.finished; i++) {
+        const sim = battle.sim;
+        const gate = sim.gates.find((g) => !g.passed && g.z - sim.distance < 700);
+        if (gate) battle.targetX = gate.left.kind === 'mul' || gate.right.kind === 'sub' ? 210 : 510;
+        battle.step(1 / 60);
+      }
+      return battle.sim.phase;
+    });
+    await page
+      .waitForFunction(() => window.__dm.game.scene.isActive('Result'), null, { timeout: 15000 })
+      .catch(() => {});
+    await sleep(800);
+    results.scenesAtEnd = await activeScenes();
+    await page.screenshot({ path: `${OUT}/4-result.png` });
+
+    // Heaviest battle: 5,000+ army against back-to-back hordes.
+    await page.goto(`${base}?debug=1&stress=1`);
+    await page.waitForFunction(() => window.__dm?.monitor, null, { timeout: 15000 });
+    await sleep(1000);
+    await tapButton('Lobby', 'startButton');
+    await sleep(2500);
+    await measure('stress', 6000);
+    results.stressSprites = await page.evaluate(() => window.__battle.debugInfo);
+    await page.screenshot({ path: `${OUT}/5-stress.png` });
+
+    // Raw rendering cost with many sprites on screen.
     await page.goto(`${base}?debug=1&bench=2000`);
     await page.waitForFunction(() => window.__dm?.monitor, null, { timeout: 15000 });
     await sleep(1000);
-    await tapGame(w / 2, h * 0.68);
+    await tapButton('Lobby', 'startButton');
     await sleep(1000);
     await measure('bench2000');
-    await page.screenshot({ path: `${OUT}/4-bench2000.png` });
+    await page.screenshot({ path: `${OUT}/6-bench2000.png` });
   } finally {
     await browser.close();
     await new Promise((r) => server.httpServer.close(r));
   }
 
-  const measured = ['lobby', 'battle', 'bench2000'].map((k) => results[k]?.summary).filter(Boolean);
+  const measured = ['lobby', 'battle', 'stress', 'bench2000'].map((k) => results[k]?.summary).filter(Boolean);
+  const unitSprites = (results.stressSprites?.units ?? Infinity) + (results.stressSprites?.zombies ?? Infinity);
   results.checks = {
     'lobby -> battle by tap': results.scenesAfterStart?.includes('Battle') ?? false,
     'background -> battle paused': results.battlePausedAfterHidden === true,
     'resume button -> battle running': results.battleRunningAfterResume === true,
+    'stage played to the end -> result screen': results.scenesAtEnd?.includes('Result') ?? false,
+    'logic <= 4ms (stress, 5000+ army)': (results.stress?.summary.logicMsAvg ?? Infinity) <= 4,
     'logic <= 4ms (2000 sprites)': (results.bench2000?.summary.logicMsAvg ?? Infinity) <= 4,
-    'draw calls <= 20': measured.length === 3 && measured.every((m) => m.drawCallsAvg <= 20),
+    'unit sprites <= 200 (stress)': unitSprites <= 200,
+    'draw calls <= 20': measured.length === 4 && measured.every((m) => m.drawCallsAvg <= 20),
     'no JS errors': results.errors.length === 0,
   };
 

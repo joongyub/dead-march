@@ -1,0 +1,8 @@
+{
+  "tiers": [
+    { "id": "survivor", "name": "생존자", "power": 1, "dps": 0.06, "range": 300, "mergeCost": 10, "mergeKeep": 20 },
+    { "id": "soldier", "name": "무장 병사", "power": 10, "dps": 1.3, "range": 560, "mergeCost": 5, "mergeKeep": 10 },
+    { "id": "gunner", "name": "기관총 사수", "power": 50, "dps": 9, "range": 680, "mergeCost": 4, "mergeKeep": 8, "pierce": 0.6 },
+    { "id": "tank", "name": "장갑차", "power": 200, "dps": 48, "range": 800, "breaksBarricades": true }
+  ]
+}

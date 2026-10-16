@@ -1,0 +1,15 @@
+{
+  "kinds": {
+    "walker": { "name": "좀비", "hp": 1, "power": 1, "speed": 40, "aggroRange": 1400 },
+    "runner": { "name": "주자 좀비", "hp": 1, "power": 1, "speed": 260, "aggroRange": 900 },
+    "brute": { "name": "탱커 좀비", "hp": 10, "power": 8, "speed": 30, "aggroRange": 1400 },
+    "exploder": { "name": "폭발 좀비", "hp": 2, "power": 2, "speed": 60, "aggroRange": 1200, "blast": 12 }
+  },
+  "bosses": {
+    "alpha": { "name": "우두머리 좀비", "speed": 80, "radius": 95 },
+    "butcher": { "name": "도살자", "speed": 90, "radius": 120 },
+    "hulk": { "name": "거대 좀비", "speed": 70, "radius": 150 },
+    "abomination": { "name": "괴수", "speed": 60, "radius": 150 },
+    "queen": { "name": "감염 여왕", "speed": 55, "radius": 140 }
+  }
+}

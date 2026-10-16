@@ -1,8 +1,10 @@
 import Phaser from 'phaser';
 import { Colors, FONT_FAMILY, SceneKeys, TextureKeys } from '../config';
+import { buildAtlas } from '../art/atlas';
+import { save } from '../game/save';
 import { createGameTextures } from './placeholderTextures';
 
-/** Loading screen with a progress bar. Real assets (atlas, audio) are queued in preload() from stage 5. */
+/** Loading screen: draws the battle atlas, loads the save, then opens the lobby. */
 export class PreloadScene extends Phaser.Scene {
   constructor() {
     super(SceneKeys.Preload);
@@ -28,6 +30,7 @@ export class PreloadScene extends Phaser.Scene {
 
   create(): void {
     createGameTextures(this);
-    this.scene.start(SceneKeys.Lobby);
+    buildAtlas(this);
+    void save.load().then(() => this.scene.start(SceneKeys.Lobby));
   }
 }

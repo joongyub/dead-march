@@ -84,6 +84,17 @@ async function main() {
 
     const { w, h } = await size();
     results.gameSize = `${w}x${h}`;
+
+    // Settings open over the lobby and close back to it.
+    await tapButton('Lobby', 'settingsButton');
+    await sleep(500);
+    results.settingsOpened = await page.evaluate(() => window.__dm.game.scene.isActive('Settings'));
+    await page.screenshot({ path: `${OUT}/1b-settings.png` });
+    await tapButton('Settings', 'closeButton');
+    await sleep(500);
+    results.lobbyAfterSettings = await page.evaluate(
+      () => window.__dm.game.scene.isActive('Lobby') && !window.__dm.game.scene.isActive('Settings'),
+    );
     await tapButton('Lobby', 'startButton'); // 출격
     await sleep(800);
     results.scenesAfterStart = await activeScenes();
@@ -149,6 +160,7 @@ async function main() {
   const measured = ['lobby', 'battle', 'stress', 'bench2000'].map((k) => results[k]?.summary).filter(Boolean);
   const unitSprites = (results.stressSprites?.units ?? Infinity) + (results.stressSprites?.zombies ?? Infinity);
   results.checks = {
+    'settings open and close over the lobby': results.settingsOpened === true && results.lobbyAfterSettings === true,
     'lobby -> battle by tap': results.scenesAfterStart?.includes('Battle') ?? false,
     'background -> battle paused': results.battlePausedAfterHidden === true,
     'resume button -> battle running': results.battleRunningAfterResume === true,

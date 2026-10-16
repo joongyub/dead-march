@@ -1,5 +1,8 @@
 import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
 function gitSha(): string {
   try {
@@ -13,6 +16,7 @@ export default defineConfig({
   // Relative base so the same build works on GitHub Pages (/dead-march/) and inside Capacitor later.
   base: './',
   define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
     __BUILD_SHA__: JSON.stringify(process.env.GITHUB_SHA?.slice(0, 7) ?? gitSha()),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },

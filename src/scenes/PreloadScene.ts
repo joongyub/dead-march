@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { Colors, FONT_FAMILY, SceneKeys, TextureKeys } from '../config';
 import { buildAtlas } from '../art/atlas';
+import { audio } from '../audio/Audio';
 import { save } from '../game/save';
-import { createGameTextures } from './placeholderTextures';
 
 /** Loading screen: draws the battle atlas, loads the save, then opens the lobby. */
 export class PreloadScene extends Phaser.Scene {
@@ -29,8 +29,12 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   create(): void {
-    createGameTextures(this);
     buildAtlas(this);
-    void save.load().then(() => this.scene.start(SceneKeys.Lobby));
+    void save.load().then(() => {
+      audio.setEnabled(save.data.settings.sound);
+      // Sounds render in the background; the lobby does not wait for them.
+      void audio.preload();
+      this.scene.start(SceneKeys.Lobby);
+    });
   }
 }

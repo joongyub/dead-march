@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ATLAS } from '../art/atlas';
+import { audio } from '../audio/Audio';
 import { Colors, FONT_FAMILY, TextureKeys } from '../config';
 
 export interface ButtonOptions {
@@ -41,7 +42,9 @@ export class Button extends Phaser.GameObjects.Container {
     this.bg.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
       const wasPressed = this.pressed;
       this.release();
-      if (wasPressed) onClick();
+      if (!wasPressed) return;
+      audio.play('click');
+      onClick();
     });
     scene.add.existing(this);
   }

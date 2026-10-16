@@ -9,4 +9,4 @@
 
 스테이지별 난이도 표는 [docs/balance.md](docs/balance.md)에 있습니다.
 
-개발 규칙과 성능 예산은 [CLAUDE.md](CLAUDE.md)에 있습니다.
+개발 규칙과 성능 예산은 [CLAUDE.md](CLAUDE.md)에 있습니다. 그림과 소리의 출처는 [CREDITS.md](CREDITS.md), 그림을 직접 바꾸고 싶을 때 쓸 프롬프트는 [docs/art-prompts.md](docs/art-prompts.md)에 있습니다.

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ATLAS, formatCount, NUM_FONT } from '../art/atlas';
+import { audio } from '../audio/Audio';
 import { zombieFrame } from '../art/sprites';
 import { Colors } from '../config';
 import type { SimHorde } from '../sim/BattleSim';
@@ -37,6 +38,8 @@ export class HordeView {
   private readonly free: Int16Array = new Int16Array(MAX_ZOMBIE_SPRITES);
   private freeCount = 0;
   private readonly vis: HordeVis[] = [];
+  /** Seconds left of each zombie's white hit flash. */
+  private readonly flashLeft = new Float32Array(MAX_ZOMBIE_SPRITES);
   private time = 0;
 
   constructor(scene: Phaser.Scene) {
@@ -108,6 +111,11 @@ export class HordeView {
         const shake = h.engaged ? (Math.random() - 0.5) * 4 : 0;
         const y = crowdY - (h.z + v.dz[j] - distance) - bob;
         s.setPosition(roadX + v.dx[j] + sway + shake, y);
+        const idx = v.idx[j];
+        if (this.flashLeft[idx] > 0) {
+          this.flashLeft[idx] -= dt;
+          if (this.flashLeft[idx] <= 0) s.clearTint();
+        }
         if (y > maxY) maxY = y;
         if (y < minY) minY = y;
       }
@@ -179,15 +187,29 @@ export class HordeView {
     }
   }
 
+  /** White hit flash on one of the front zombies of a horde being shot. */
+  flashRandom(h: SimHorde): void {
+    const v = this.find(h);
+    if (!v || v.alive === 0) return;
+    const j = v.k - v.alive + Math.floor(Math.random() * Math.min(v.alive, 5));
+    const idx = v.idx[j];
+    if (this.flashLeft[idx] > 0) return;
+    this.flashLeft[idx] = 0.05;
+    this.sprites[idx].setTintFill(0xffffff);
+  }
+
   private kill(s: Phaser.GameObjects.Image, h: SimHorde, fx: Effects, roadX: number, distance: number, crowdY: number): void {
     const z = distance + (crowdY - s.y);
+    s.clearTint();
     if (h.kindId === 'exploder') {
+      audio.play('explode', 0.6);
       fx.glow(s.x, s.y, 150, 0xffa030, 0.22);
       fx.ring(s.x, s.y, 140, 0xffb040, 0.3);
       fx.burst(s.x, s.y, 6, 0xffc040, 380, 'spark', 0.35);
       fx.decal(s.x - roadX, z, 0x3a2a10, 0.9);
       return;
     }
+    audio.play('zombieDie', 0.7);
     fx.decal(s.x - roadX, z, ZOMBIE_BLOOD, h.kindId === 'brute' ? 0.9 : 0.5 + Math.random() * 0.2);
     fx.burst(s.x, s.y, h.kindId === 'brute' ? 5 : 2, 0x8a1838, 220, 'chunk', 0.3);
   }
@@ -195,7 +217,8 @@ export class HordeView {
   private release(v: HordeVis): void {
     for (let j = 0; j < v.k; j++) {
       const i = v.idx[j];
-      this.sprites[i].setVisible(false);
+      this.flashLeft[i] = 0;
+      this.sprites[i].clearTint().setVisible(false);
       this.free[this.freeCount++] = i;
     }
     v.horde = null;

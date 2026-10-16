@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { ATLAS, formatCount, NUM_FONT } from '../art/atlas';
+import { audio } from '../audio/Audio';
 import { Colors, FONT_FAMILY, SceneKeys } from '../config';
+import { setFrameCap } from '../core/frameRate';
 import type { BattleOutcome } from '../game/progress';
 import { LEVELS } from '../sim/rules';
 import { Button } from '../ui/Button';
@@ -39,6 +41,7 @@ export class ResultScene extends BaseScene {
   }
 
   create(data: ResultData): void {
+    setFrameCap(this.game, 30);
     this.result = data;
     this.shown = 0;
     this.rewardIcons = [];
@@ -97,7 +100,9 @@ export class ResultScene extends BaseScene {
     // Rewards count up over half a second.
     const reward = this.result.outcome?.reward;
     if (!reward || this.shown >= 1) return;
+    if (this.shown === 0) audio.play('coin');
     this.shown = Math.min(1, this.shown + delta / 600);
+    if (this.shown >= 1) audio.play('coin', 1, 500);
     const values = [reward.food, reward.scrap, reward.fuel];
     for (let i = 0; i < 3; i++) this.rewardTexts[i].setText(`+${Math.round(values[i] * this.shown)}`);
   }

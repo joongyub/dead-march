@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ATLAS } from '../art/atlas';
+import { audio } from '../audio/Audio';
 import { Colors } from '../config';
 
 /** Square button with an atlas icon (pause, settings, arrows). Fires on release, like Button. */
@@ -31,7 +32,9 @@ export class IconButton extends Phaser.GameObjects.Container {
     this.bg.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
       const wasPressed = this.pressed;
       this.release();
-      if (wasPressed) onClick();
+      if (!wasPressed) return;
+      audio.play('click');
+      onClick();
     });
     scene.add.existing(this);
   }

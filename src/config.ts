@@ -16,19 +16,16 @@ export const SceneKeys = {
   Battle: 'Battle',
   Pause: 'Pause',
   Result: 'Result',
+  Settings: 'Settings',
 } as const;
 
 export const TextureKeys = {
   Pixel: 'px',
   Panel: 'panel',
-  Unit: 'unit',
-  Ground: 'ground',
 } as const;
 
 export const Colors = {
   background: 0x11140f,
-  ground: 0x262b21,
-  groundLine: 0x323a2b,
   primary: 0x3fa34d,
   primaryDark: 0x2c7536,
   danger: 0xb8433a,

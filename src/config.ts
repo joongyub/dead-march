@@ -1,0 +1,41 @@
+/** Design resolution. Width is fixed; height grows with the screen (Scale.EXPAND). */
+export const DESIGN_WIDTH = 720;
+export const DESIGN_HEIGHT = 1280;
+
+/**
+ * Canvas pixels per CSS pixel never exceed this. With a 720px-wide canvas, phones
+ * (360–430 CSS px wide) land at roughly 1.7–2.0, so the cap mostly holds by itself;
+ * main.ts enforces it for narrower screens.
+ */
+export const MAX_DPR = 2;
+
+export const SceneKeys = {
+  Boot: 'Boot',
+  Preload: 'Preload',
+  Lobby: 'Lobby',
+  Battle: 'Battle',
+  Pause: 'Pause',
+} as const;
+
+export const TextureKeys = {
+  Pixel: 'px',
+  Panel: 'panel',
+  Unit: 'unit',
+  Ground: 'ground',
+} as const;
+
+export const Colors = {
+  background: 0x11140f,
+  ground: 0x262b21,
+  groundLine: 0x323a2b,
+  primary: 0x3fa34d,
+  primaryDark: 0x2c7536,
+  danger: 0xb8433a,
+  neutral: 0x3a4250,
+  text: '#e9efe4',
+  textDim: '#93a08a',
+  accent: '#f2c14e',
+} as const;
+
+export const FONT_FAMILY =
+  'system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif';

@@ -1,0 +1,17 @@
+{
+  "name": "데드 마치",
+  "short_name": "데드 마치",
+  "description": "생존자를 이끌고 좀비 떼를 뚫는 러너 전투 게임",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "portrait",
+  "background_color": "#11140f",
+  "theme_color": "#11140f",
+  "lang": "ko",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

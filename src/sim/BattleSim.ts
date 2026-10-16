@@ -86,6 +86,8 @@ export interface BattleModifiers {
   startBonus: number;
   /** Multiplier on all ranged damage (armory upgrades). */
   dpsMultiplier: number;
+  /** Extra units per merge, e.g. 0.1 = one free unit every ten merges (garage upgrades). */
+  mergeBonus?: number;
 }
 
 export interface BattleRules {
@@ -138,7 +140,7 @@ export class BattleSim {
     readonly rules: BattleRules,
     modifiers: BattleModifiers = { startBonus: 0, dpsMultiplier: 1 },
   ) {
-    this.army = new Army(rules.tiers);
+    this.army = new Army(rules.tiers, modifiers.mergeBonus ?? 0);
     this.army.reset(level.start + modifiers.startBonus);
     this.baseSpeed = level.speed ?? DEFAULT_SPEED;
     this.speed = this.baseSpeed;

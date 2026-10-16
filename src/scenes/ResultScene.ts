@@ -4,7 +4,10 @@ import { audio } from '../audio/Audio';
 import { Colors, FONT_FAMILY, SceneKeys } from '../config';
 import { setFrameCap } from '../core/frameRate';
 import type { BattleOutcome } from '../game/progress';
+import { canAfford, nextCost, BUILDING_IDS, RESOURCE_IDS } from '../meta/shelter';
+import { save } from '../game/save';
 import { LEVELS } from '../sim/rules';
+import { RESOURCE_ICON } from '../ui/resourceIcons';
 import { Button } from '../ui/Button';
 import { BaseScene } from './BaseScene';
 
@@ -17,11 +20,7 @@ export interface ResultData {
   outcome: BattleOutcome | null;
 }
 
-const REWARD_ICONS = [
-  { key: 'food', icon: 'i_food', tint: 0x9be07a },
-  { key: 'scrap', icon: 'i_scrap', tint: 0xc9d3dc },
-  { key: 'fuel', icon: 'i_fuel', tint: 0xffb44a },
-] as const;
+const REWARD_ICONS = RESOURCE_IDS.map((r) => RESOURCE_ICON[r]);
 
 /** Win/lose panel over the paused battle: what happened, what was earned, and where to go next. */
 export class ResultScene extends BaseScene {
@@ -79,12 +78,25 @@ export class ResultScene extends BaseScene {
     if (data.won && data.stage > 0 && data.stage < LEVELS.length) {
       this.buttons.push(new Button(this, 0, 0, '다음 스테이지', () => this.startBattle(next), { width: 460 }));
     }
-    this.buttons.push(
-      new Button(this, 0, 0, '다시 하기', () => this.startBattle(data.stage), {
-        width: 460,
-        color: data.won ? Colors.neutral : Colors.primary,
-      }),
-    );
+    // After a loss with an upgrade in reach, the shelter is the better next step than another try.
+    const canUpgrade = data.stage > 0 && BUILDING_IDS.some((id) => {
+      const cost = nextCost(save.data.buildings, id);
+      return !!cost && canAfford(save.data.resources, cost);
+    });
+    const shelterFirst = !data.won && canUpgrade;
+    const retry = new Button(this, 0, 0, '다시 하기', () => this.startBattle(data.stage), {
+      width: 460,
+      color: data.won || shelterFirst ? Colors.neutral : Colors.primary,
+    });
+    const shelter = new Button(this, 0, 0, canUpgrade ? '피난처 강화하기' : '피난처', () => this.toShelter(), {
+      width: 460,
+      color: shelterFirst ? Colors.primary : Colors.neutral,
+    });
+    if (data.stage > 0) this.buttons.push(...(shelterFirst ? [shelter, retry] : [retry, shelter]));
+    else {
+      shelter.destroy();
+      this.buttons.push(retry);
+    }
     this.buttons.push(new Button(this, 0, 0, '로비로', () => this.toLobby(), { width: 460, color: Colors.neutral }));
 
     // Panel slides up a little as it appears.
@@ -128,6 +140,11 @@ export class ResultScene extends BaseScene {
   private startBattle(stage: number): void {
     this.scene.stop();
     this.scene.get(SceneKeys.Battle).scene.restart({ stage });
+  }
+
+  private toShelter(): void {
+    this.scene.stop(SceneKeys.Battle);
+    this.scene.start(SceneKeys.Shelter);
   }
 
   private toLobby(): void {

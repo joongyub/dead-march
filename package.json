@@ -1,17 +1,20 @@
 {
   "name": "dead-march",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
     "preview": "vite preview --host",
     "smoke": "node scripts/smoke.mjs",
     "icons": "node scripts/make-icons.mjs",
     "balance": "tsx scripts/balance.ts",
-    "gen-levels": "tsx scripts/gen-levels.ts"
+    "gen-levels": "tsx scripts/gen-levels.ts",
+    "gen-shelter": "tsx scripts/gen-shelter.ts",
+    "playtime": "tsx scripts/playtime.ts"
   },
   "dependencies": {
     "phaser": "3.90.0"

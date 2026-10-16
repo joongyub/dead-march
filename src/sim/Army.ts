@@ -4,7 +4,9 @@ import { TIER_COUNT, type ParsedOp, type Tier, type TierDef } from './types';
  * The player's army as unit counts per tier. Total power (survivor-equivalents) is what fights;
  * tiers decide how well the army shoots and whether it smashes barricades.
  *
- * Merging is automatic and power-neutral: 10 survivors become 1 soldier worth 10, and so on.
+ * Merging is automatic and power-neutral: 10 survivors become 1 soldier worth 10, and so on. The shelter
+ * garage adds a bonus: every merge also yields `mergeBonus` extra units of the new tier, accumulated as
+ * fractions so small merges still add up.
  * Damage eats the lowest tier first and breaks a higher unit into lower ones when needed.
  */
 export class Army {
@@ -12,8 +14,13 @@ export class Army {
   /** Merges performed per source tier since the owner last zeroed this (drives merge flashes). */
   readonly pendingMerges: number[] = new Array<number>(TIER_COUNT).fill(0);
   private pendingDamage = 0;
+  /** Fractional bonus units waiting per tier (garage). */
+  private readonly bonusAcc: number[] = new Array<number>(TIER_COUNT).fill(0);
 
-  constructor(private readonly tiers: readonly TierDef[]) {}
+  constructor(
+    private readonly tiers: readonly TierDef[],
+    private readonly mergeBonus = 0,
+  ) {}
 
   get power(): number {
     let total = 0;
@@ -59,6 +66,7 @@ export class Army {
     this.counts.fill(0);
     this.counts[0] = survivors;
     this.pendingDamage = 0;
+    this.bonusAcc.fill(0);
     this.normalize();
     this.pendingMerges.fill(0);
   }
@@ -138,7 +146,7 @@ export class Army {
       const groups = Math.floor(this.counts[i] / cost);
       if (groups <= 0) continue;
       this.counts[i] -= groups * cost;
-      this.counts[i + 1] += groups;
+      this.counts[i + 1] += groups + this.bonusUnits(i + 1, groups);
       this.pendingMerges[i] += groups;
     }
   }
@@ -165,9 +173,18 @@ export class Army {
       if (excess < mergeCost) continue;
       const groups = Math.floor(excess / mergeCost);
       this.counts[i] -= groups * mergeCost;
-      this.counts[i + 1] += groups;
+      this.counts[i + 1] += groups + this.bonusUnits(i + 1, groups);
       this.pendingMerges[i] += groups;
     }
+  }
+
+  /** Whole bonus units earned by `groups` merges into `tier`; the fraction carries to the next merge. */
+  private bonusUnits(tier: number, groups: number): number {
+    if (this.mergeBonus <= 0) return 0;
+    const acc = this.bonusAcc[tier] + groups * this.mergeBonus;
+    const whole = Math.floor(acc);
+    this.bonusAcc[tier] = acc - whole;
+    return whole;
   }
 }
 

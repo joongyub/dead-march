@@ -15,6 +15,7 @@ import { Colors, DESIGN_WIDTH, SceneKeys } from '../config';
 import { setFrameCap } from '../core/frameRate';
 import { FixedTimestep } from '../core/FixedTimestep';
 import { recordBattle } from '../game/progress';
+import { shelterModifiers } from '../meta/shelter';
 import { save } from '../game/save';
 import { flags } from '../platform/flags';
 import { vibrate } from '../platform/haptics';
@@ -94,7 +95,9 @@ export class BattleScene extends BaseScene {
     setFrameCap(this.game, 0);
     this.stress = data.stress ?? flags.stress;
     this.level = this.stress ? stressLevel() : getLevel(data.stage ?? save.data.unlocked);
-    this.sim = new BattleSim(this.level, RULES, data.modifiers);
+    // The stress test measures raw cost, so it ignores shelter upgrades.
+    const modifiers = data.modifiers ?? (this.stress ? undefined : shelterModifiers(save.data.buildings));
+    this.sim = new BattleSim(this.level, RULES, modifiers);
     this.timestep.reset();
     this.prevDistance = 0;
     this.prevCrowdX = this.sim.crowdX;

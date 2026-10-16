@@ -17,6 +17,7 @@ export const SceneKeys = {
   Pause: 'Pause',
   Result: 'Result',
   Settings: 'Settings',
+  Shelter: 'Shelter',
 } as const;
 
 export const TextureKeys = {

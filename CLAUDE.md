@@ -48,7 +48,8 @@ src/
   config.ts            설계 해상도, 장면/텍스처 키, 색, 폰트
   core/                장면과 무관한 엔진 도구 (FixedTimestep, Pool, frameRate: 로비/결과/일시정지 30fps)
   sim/                 전투 규칙 (Phaser 없음). 게임과 노드 시뮬레이터가 같은 코드를 씀
-  data/                units/zombies/levels/economy JSON. 수치는 여기서만 바꾼다
+  meta/                피난처 규칙 (건물 비용·효과, 방치 보상, 시간 되돌림 방지). 역시 Phaser 없음
+  data/                units/zombies/levels/economy/shelter JSON. 수치는 여기서만 바꾼다
   art/                 그림을 코드로 그려 아틀라스 한 장 + 숫자 비트맵 폰트로 만듦 (로비 배경·로고는 lobbyArt.ts)
   audio/               효과음과 음악을 Web Audio로 합성 (파일 없음). 동시 8개, 같은 소리 최소 간격
   battle/              전투 화면 조각 (도로, 무리, 좀비 떼, 게이트, 바리케이드, 보스, 효과, HUD)
@@ -56,17 +57,20 @@ src/
   platform/            브라우저/기기 대응 (URL 플래그, 저장소, 진동, 확대·스크롤 방지, 노치 여백)
   debug/               성능 측정기와 오버레이 (?debug=1 전용)
   ui/                  공용 UI 위젯 (Button, IconButton, Toggle)
-  scenes/              Boot → Preload → Lobby → Battle (+ Pause, Result, Settings 오버레이)
+  scenes/              Boot → Preload → Lobby ⇄ Shelter → Battle (+ Pause, Result, Settings 오버레이)
 public/                manifest.webmanifest, 아이콘, licenses.txt (그대로 복사됨)
 assets/                안드로이드 아이콘/스플래시 원본 (9단계 Capacitor용, 웹 빌드에는 안 들어감)
 scripts/smoke.mjs      헤드리스 휴대폰 검사
 scripts/make-icons.mjs 앱 아이콘과 스플래시를 캔버스로 그려 PNG 저장
 scripts/gen-levels.ts  스테이지 20개 생성 + 시뮬레이터로 난이도 맞춤 (levelCurve.ts의 목표 곡선)
 scripts/balance.ts     스테이지별 승률/남은 병력 표 → docs/balance.md
+scripts/gen-shelter.ts 피난처 건물 레벨 1~20 비용·효과 곡선 → src/data/shelter.json
+scripts/playtime.ts    가상 플레이어로 20스테이지까지 걸리는 플레이 시간 추정 → docs/playtime.md
+tests/                 브라우저 없이 도는 규칙 검사 (npm test, PR마다 실행)
 .github/workflows/     ci.yml (PR 검사), deploy.yml (Pages 배포)
 ```
 
-전투 규칙(`src/sim/`)은 결정적이고 난수를 쓰지 않는다. 규칙이나 `units.json`/`zombies.json`을 바꾸면 `npm run gen-levels`로 스테이지를 다시 맞추고 `npm run balance`로 표를 갱신한다.
+전투 규칙(`src/sim/`)은 결정적이고 난수를 쓰지 않는다. 규칙이나 `units.json`/`zombies.json`을 바꾸면 `npm run gen-levels`로 스테이지를 다시 맞추고 `npm run balance`로 표를 갱신한다. 피난처 비용이나 전투 보상(`economy.json`)을 바꾸면 `npm run gen-shelter && npm run playtime`으로 플레이 시간을 다시 확인한다.
 
 ## 코딩 규칙
 
@@ -89,4 +93,7 @@ npm run smoke        # 빌드 결과를 휴대폰 크기 헤드리스 브라우�
 npm run gen-levels   # 스테이지 다시 생성 (약 10분)
 npm run balance      # 밸런스 표 docs/balance.md
 npm run icons        # 앱 아이콘/스플래시 다시 그리기
+npm test             # 규칙 검사 (피난처, 방치 보상, 저장)
+npm run gen-shelter  # 피난처 비용·효과 데이터 다시 생성
+npm run playtime     # 플레이 시간 추정 docs/playtime.md
 ```

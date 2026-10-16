@@ -19,5 +19,7 @@ jobs:
       - run: npm ci
       - name: Type check
         run: npm run typecheck
+      - name: Rule tests
+        run: npm test
       - name: Build
         run: npx vite build

@@ -158,6 +158,8 @@ class SaveStore {
       clearTimeout(this.pending);
       this.pending = null;
     }
+    // The idle clock guard needs the latest time this device has shown (see meta/shelter.ts guardClock).
+    this.data.idle.lastSeen = Math.max(this.data.idle.lastSeen, Date.now());
     const backend = storage();
     const current = await backend.read(MAIN_KEY);
     if (current && decode(current)) await backend.write(BACKUP_KEY, current);

@@ -161,6 +161,11 @@ export class SettingsScene extends BaseScene {
     this.licenseLink.setPosition(cx, top + panelH - 50);
   }
 
+  override onBack(): boolean {
+    this.close();
+    return true;
+  }
+
   private close(): void {
     if (this.reloadOnClose) {
       void save.flush().then(() => location.reload());

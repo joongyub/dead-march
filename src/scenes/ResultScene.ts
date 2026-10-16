@@ -156,6 +156,11 @@ export class ResultScene extends BaseScene {
     this.scene.get(SceneKeys.Battle).scene.restart({ stage });
   }
 
+  override onBack(): boolean {
+    this.toLobby();
+    return true;
+  }
+
   private toShelter(): void {
     this.scene.stop(SceneKeys.Battle);
     this.scene.start(SceneKeys.Shelter);

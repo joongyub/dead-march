@@ -4,6 +4,7 @@ import { audio } from '../audio/Audio';
 import { Colors, DESIGN_HEIGHT, DESIGN_WIDTH, FONT_FAMILY, SceneKeys } from '../config';
 import { setFrameCap } from '../core/frameRate';
 import { t } from '../i18n';
+import { appReady } from '../platform/app';
 import { BaseScene } from './BaseScene';
 
 /** First screen: logo and "tap to start". The tap also lets the browser start sound. */
@@ -42,6 +43,8 @@ export class TitleScene extends BaseScene {
     this.input.once(Phaser.Input.Events.POINTER_UP, () => this.start());
     this.enter();
     this.bindLayout();
+    // The app's splash screen lifts once the title has actually drawn.
+    this.game.events.once(Phaser.Core.Events.POST_RENDER, appReady);
   }
 
   override update(_time: number, delta: number): void {

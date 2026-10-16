@@ -16,6 +16,14 @@ export abstract class BaseScene extends Phaser.Scene {
 
   protected abstract layout(width: number, height: number): void;
 
+  /**
+   * Android back button (or Escape on the web) while this scene is on top; see platform/back.ts.
+   * Returning false sends the app to the background, which is right for the title and the lobby.
+   */
+  onBack(): boolean {
+    return false;
+  }
+
   /** Quick fade from black for full-screen scenes (not overlays). */
   protected enter(): void {
     this.cameras.main.fadeIn(FADE_MS, 0, 0, 0);

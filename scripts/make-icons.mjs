@@ -4,8 +4,10 @@
 // Usage: npm run icons
 //   public/icons/icon-192.png, icon-512.png       web app / favicon
 //   public/icons/icon-maskable-512.png            Android home screen (content kept in the safe circle)
-//   assets/icon-*.png, assets/splash*.png         sources for the Android app icons and splash (stage 9)
+//   android/app/src/main/res/mipmap-*/            app launcher icons (square, round, adaptive layers)
+//   android/app/src/main/res/drawable*/splash.png splash for Android 11 and older (12+ shows the icon)
 import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { chromium } from 'playwright-core';
 
 /**
@@ -115,62 +117,102 @@ function drawIcon(size, layer, safe) {
   return canvas.toDataURL('image/png');
 }
 
-/** Splash: dark screen with the icon art in the middle. */
-function drawSplash(size, dark) {
+/** Round launcher icon: the full icon clipped to a circle. */
+function drawRound(size) {
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const c = canvas.getContext('2d');
-  c.fillStyle = dark ? '#0b0608' : '#11140f';
-  c.fillRect(0, 0, size, size);
-  return { canvas, c };
+  const img = new Image();
+  return new Promise((done) => {
+    img.onload = () => {
+      c.beginPath();
+      c.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+      c.clip();
+      c.drawImage(img, 0, 0, size, size);
+      done(canvas.toDataURL('image/png'));
+    };
+    img.src = drawIcon(size, 'full', 1);
+  });
 }
 
-const OUTPUTS = [
+/** Splash: the game's background color with the icon (rounded) in the middle. */
+function drawSplash(width, height) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const c = canvas.getContext('2d');
+  c.fillStyle = '#11140f';
+  c.fillRect(0, 0, width, height);
+  const s = Math.round(Math.min(width, height) * 0.36);
+  const img = new Image();
+  return new Promise((done) => {
+    img.onload = () => {
+      c.beginPath();
+      c.roundRect((width - s) / 2, (height - s) / 2, s, s, s * 0.22);
+      c.clip();
+      c.drawImage(img, (width - s) / 2, (height - s) / 2, s, s);
+      done(canvas.toDataURL('image/png'));
+    };
+    img.src = drawIcon(s, 'full', 1);
+  });
+}
+
+const RES = 'android/app/src/main/res';
+// Launcher icon size in px per screen density (48dp); adaptive layers are 108dp.
+const DENSITIES = [
+  ['mdpi', 48],
+  ['hdpi', 72],
+  ['xhdpi', 96],
+  ['xxhdpi', 144],
+  ['xxxhdpi', 192],
+];
+// Splash sizes Capacitor's template uses (portrait; landscape is the same turned sideways).
+const SPLASHES = [
+  ['mdpi', 320, 480],
+  ['hdpi', 480, 800],
+  ['xhdpi', 720, 1280],
+  ['xxhdpi', 960, 1600],
+  ['xxxhdpi', 1280, 1920],
+];
+
+const ICONS = [
   ['public/icons/icon-192.png', 192, 'full', 1],
   ['public/icons/icon-512.png', 512, 'full', 1],
   ['public/icons/icon-maskable-512.png', 512, 'full', 0.78],
-  ['assets/icon-only.png', 1024, 'full', 1],
-  ['assets/icon-foreground.png', 1024, 'foreground', 0.62],
-  ['assets/icon-background.png', 1024, 'background', 1],
 ];
+for (const [dpi, px] of DENSITIES) {
+  const layer = Math.round((px * 108) / 48);
+  ICONS.push([`${RES}/mipmap-${dpi}/ic_launcher.png`, px, 'full', 1]);
+  // Adaptive icons show the middle 72dp of 108dp and launchers may cut a circle out of that.
+  ICONS.push([`${RES}/mipmap-${dpi}/ic_launcher_foreground.png`, layer, 'foreground', 0.58]);
+  ICONS.push([`${RES}/mipmap-${dpi}/ic_launcher_background.png`, layer, 'background', 1]);
+}
+
+const dataUrlToBuffer = (url) => Buffer.from(url.split(',')[1], 'base64');
 
 async function main() {
-  await mkdir('public/icons', { recursive: true });
-  await mkdir('assets', { recursive: true });
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined });
   try {
     const page = await browser.newPage();
     await page.setContent('<html><body></body></html>');
-    for (const [file, size, layer, safe] of OUTPUTS) {
-      const url = await page.evaluate(`(${drawIcon.toString()})(${size}, '${layer}', ${safe})`);
-      await writeFile(file, Buffer.from(url.split(',')[1], 'base64'));
+    await page.addScriptTag({ content: `${drawIcon.toString()}\n${drawRound.toString()}\n${drawSplash.toString()}` });
+    const write = async (file, url) => {
+      await mkdir(dirname(file), { recursive: true });
+      await writeFile(file, dataUrlToBuffer(url));
       console.log('wrote', file);
+    };
+    for (const [file, size, layer, safe] of ICONS) {
+      await write(file, await page.evaluate(([a, b, c]) => drawIcon(a, b, c), [size, layer, safe]));
     }
-    // Splash screens: icon art centered on a plain background, 2732 square (Capacitor crops to each screen).
-    for (const [file, dark] of [
-      ['assets/splash.png', false],
-      ['assets/splash-dark.png', true],
-    ]) {
-      const url = await page.evaluate(
-        `(() => {
-          const { canvas, c } = (${drawSplash.toString()})(2732, ${dark});
-          const img = new Image();
-          return new Promise((done) => {
-            img.onload = () => {
-              c.beginPath();
-              c.roundRect(2732 / 2 - 400, 2732 / 2 - 400, 800, 800, 180);
-              c.clip();
-              c.drawImage(img, 2732 / 2 - 400, 2732 / 2 - 400, 800, 800);
-              done(canvas.toDataURL('image/png'));
-            };
-            img.src = (${drawIcon.toString()})(800, 'full', 1);
-          });
-        })()`,
-      );
-      await writeFile(file, Buffer.from(url.split(',')[1], 'base64'));
-      console.log('wrote', file);
+    for (const [dpi, px] of DENSITIES) {
+      await write(`${RES}/mipmap-${dpi}/ic_launcher_round.png`, await page.evaluate((n) => drawRound(n), px));
     }
+    for (const [dpi, w, h] of SPLASHES) {
+      await write(`${RES}/drawable-port-${dpi}/splash.png`, await page.evaluate(([a, b]) => drawSplash(a, b), [w, h]));
+      await write(`${RES}/drawable-land-${dpi}/splash.png`, await page.evaluate(([a, b]) => drawSplash(a, b), [h, w]));
+    }
+    await write(`${RES}/drawable/splash.png`, await page.evaluate(() => drawSplash(480, 320)));
   } finally {
     await browser.close();
   }

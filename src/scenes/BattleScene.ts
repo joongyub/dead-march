@@ -233,6 +233,11 @@ export class BattleScene extends BaseScene {
     this.tweens.add({ targets: note, alpha: 0, delay: 2600, duration: 400, onComplete: () => note.destroy() });
   }
 
+  override onBack(): boolean {
+    this.openPause();
+    return true;
+  }
+
   openPause(): void {
     if (!this.scene.isActive() || this.scene.isPaused() || this.ended) return;
     this.dragging = false;

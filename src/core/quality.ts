@@ -52,7 +52,10 @@ export function viewHeight(scale: Phaser.Scale.ScaleManager): number {
 /** Average frame time above this for SLOW_SECONDS in a row turns 'auto' low-spec mode on. */
 const SLOW_FRAME_MS = 20;
 const SLOW_SECONDS = 3;
-/** Single frames longer than this are hitches (loading, a notification), not a slow device. */
+/**
+ * A lone frame longer than this is a hitch (loading, a notification), not a slow device. Long frames
+ * one after another are a slow device and count.
+ */
 const HITCH_MS = 250;
 
 /** Watches battle frame times for the 'auto' setting. Allocation-free; call push() every frame. */
@@ -60,16 +63,21 @@ export class SlowFrameDetector {
   private bucketMs = 0;
   private bucketFrames = 0;
   private slowSeconds = 0;
+  private lastLong = false;
 
   reset(): void {
     this.bucketMs = 0;
     this.bucketFrames = 0;
     this.slowSeconds = 0;
+    this.lastLong = false;
   }
 
   /** Returns true once frames have been slow for SLOW_SECONDS in a row. */
   push(deltaMs: number): boolean {
-    if (deltaMs > HITCH_MS) return false;
+    const long = deltaMs > HITCH_MS;
+    const hitch = long && !this.lastLong;
+    this.lastLong = long;
+    if (hitch) return false;
     this.bucketMs += deltaMs;
     this.bucketFrames++;
     if (this.bucketMs < 1000) return false;

@@ -161,13 +161,14 @@ async function main() {
     results.gameSize = `${w}x${h}`;
 
     // Settings open over the lobby and close back to it.
+    // Waits instead of fixed sleeps: the CI machine's frames take up to half a second.
+    const settle = (fn) => page.waitForFunction(fn, null, { timeout: 5000 }).then(() => true, () => false);
     await tapButton('Lobby', 'settingsButton');
-    await sleep(500);
-    results.settingsOpened = await page.evaluate(() => window.__dm.game.scene.isActive('Settings'));
+    results.settingsOpened = await settle(() => window.__dm.game.scene.isActive('Settings'));
+    await sleep(300);
     await page.screenshot({ path: `${OUT}/1b-settings.png` });
     await tapButton('Settings', 'closeButton');
-    await sleep(500);
-    results.lobbyAfterSettings = await page.evaluate(
+    results.lobbyAfterSettings = await settle(
       () => window.__dm.game.scene.isActive('Lobby') && !window.__dm.game.scene.isActive('Settings'),
     );
     await expectSwitch('Battle');
@@ -175,12 +176,12 @@ async function main() {
     await sleep(800);
     results.scenesAfterStart = await activeScenes();
     // Stage 1 on a fresh save opens with the steering lesson; dragging clears it.
-    results.swipeLessonShown = await page.evaluate(() => window.__battle.tutorial.step === 'swipe');
+    results.swipeLessonShown = await settle(() => window.__battle?.tutorial.step === 'swipe');
     await page.screenshot({ path: `${OUT}/2-battle-lesson.png` });
     const { h: gh } = await size();
-    await dragGame(300, gh * 0.8, 520);
-    await sleep(300);
-    results.swipeLearned = await page.evaluate(() => window.__dm.save.data.tutorial.swipe === true && window.__battle.tutorial.step !== 'swipe');
+    // The lesson needs 220 units of finger travel; drag a little more than that.
+    await dragGame(280, gh * 0.8, 540);
+    results.swipeLearned = await settle(() => window.__dm.save.data.tutorial.swipe === true && window.__battle.tutorial.step !== 'swipe');
     await measure('battle');
     await page.screenshot({ path: `${OUT}/2-battle.png` });
 
@@ -189,11 +190,9 @@ async function main() {
       window.__dm.game.events.emit('hidden');
       window.__dm.game.events.emit('visible');
     });
-    await sleep(500);
+    results.battlePausedAfterHidden = await settle(() => window.__dm.game.scene.isPaused('Battle'));
+    await sleep(300);
     results.scenesAfterHidden = await activeScenes();
-    results.battlePausedAfterHidden = await page.evaluate(() =>
-      window.__dm.game.scene.isPaused('Battle'),
-    );
     await page.screenshot({ path: `${OUT}/3-pause.png` });
     // A tap that lands during one of SwiftShader's 200ms frames is occasionally dropped; one retry.
     for (let attempt = 0; attempt < 2 && !results.battleRunningAfterResume; attempt++) {
@@ -362,6 +361,8 @@ async function main() {
   for (const [label, data] of Object.entries(results)) {
     if (data?.summary) console.log(label.padEnd(10), JSON.stringify(data.summary));
   }
+  console.log('switches  ', JSON.stringify(results.switches));
+  console.log('low-spec  ', JSON.stringify(results.lowSpec));
   for (const [name, ok] of Object.entries(results.checks)) console.log(ok ? 'PASS' : 'FAIL', name);
   if (Object.values(results.checks).includes(false)) process.exitCode = 1;
 }

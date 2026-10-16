@@ -209,7 +209,8 @@ export class BattleScene extends BaseScene {
       if (this.endTimer < 0) this.finish();
     }
     if (this.benchSprites.length > 0) this.stepBench(delta / 1000);
-    if (!quality.low && save.data.settings.lowSpec === 'auto' && this.slowFrames.push(delta)) this.enterLowSpec();
+    // Raw frame time: Phaser's smoothed delta swaps frames over 200ms for an earlier normal one.
+    if (!quality.low && save.data.settings.lowSpec === 'auto' && this.slowFrames.push(this.game.loop.rawDelta)) this.enterLowSpec();
   }
 
   /** Battles keep running slow on this device: lighter settings from now on (and next launch). */

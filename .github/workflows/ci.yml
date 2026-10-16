@@ -42,6 +42,10 @@ jobs:
         run: npm run build
       - name: Find Chrome
         run: echo "CHROME_PATH=$(command -v google-chrome || command -v chromium)" >> "$GITHUB_ENV"
+      # Phones ship a Korean font. Without one, Chrome searches every installed font for each new
+      # Hangul letter, which makes scenes with fresh text slow to open and the screenshots unreadable.
+      - name: Korean font
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends fonts-nanum
       - name: Smoke test (flow + budgets)
         run: npm run smoke
       - name: Memory leak check (30 battles)

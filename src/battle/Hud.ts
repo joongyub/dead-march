@@ -79,6 +79,11 @@ export class Hud {
     }
   }
 
+  /** Where the HUD shows tier `i` (the tutorial points at it). */
+  tierIconAt(i: number): Phaser.GameObjects.Image {
+    return this.tierIcons[i];
+  }
+
   showBoss(): void {
     this.bossMode = true;
     this.title.setText(this.bossLabel).setColor('#ff8a8a');

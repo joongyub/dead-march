@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { FONT_FAMILY } from '../config';
-import { FRAMES, type FrameSpec } from './sprites';
+import { addCanvasTexture } from './canvasTexture';
+import { allFrames, type FrameSpec } from './sprites';
 
 /** Texture key of the one battle atlas, and the bitmap font built inside it. */
 export const ATLAS = 'atlas';
@@ -57,7 +58,7 @@ export function buildAtlas(scene: Phaser.Scene): void {
     });
   }
 
-  const placed = pack([...FRAMES, ...glyphSpecs]);
+  const placed = pack([...allFrames(), ...glyphSpecs]);
   const height = nextPow2(placed.reduce((m, p) => Math.max(m, p.y + p.h + PAD), 0));
 
   const canvas = document.createElement('canvas');
@@ -74,7 +75,7 @@ export function buildAtlas(scene: Phaser.Scene): void {
     ctx.restore();
   }
 
-  const texture = scene.textures.addCanvas(ATLAS, canvas)!;
+  const texture = addCanvasTexture(scene, ATLAS, canvas);
   const byName = new Map<string, Placed>();
   for (const p of placed) {
     texture.add(p.name, 0, p.x, p.y, p.w, p.h);

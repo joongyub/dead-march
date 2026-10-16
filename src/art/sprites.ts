@@ -1,4 +1,5 @@
 import { FONT_FAMILY } from '../config';
+import { t } from '../i18n';
 import { circle, ellipse, line, linear, polygon, radial, roundRect, seeded, shadow, type Ctx } from './draw';
 
 /**
@@ -769,6 +770,24 @@ const icons: FrameSpec[] = [
     },
   },
   {
+    name: 'i_lang',
+    w: 48,
+    h: 48,
+    draw: (c) => {
+      c.lineWidth = 3.5;
+      c.strokeStyle = W;
+      c.beginPath();
+      c.arc(24, 24, 18, 0, Math.PI * 2);
+      c.stroke();
+      c.beginPath();
+      c.ellipse(24, 24, 8, 18, 0, 0, Math.PI * 2);
+      c.stroke();
+      line(c, 6, 24, 42, 24, W, 3);
+      line(c, 10, 14, 38, 14, W, 2.5);
+      line(c, 10, 34, 38, 34, W, 2.5);
+    },
+  },
+  {
     name: 'i_home',
     w: 48,
     h: 48,
@@ -846,7 +865,11 @@ const icons: FrameSpec[] = [
 
 // ---------- Korean words drawn as pictures, so popups stay in the atlas batch ----------
 
-function word(name: string, text: string, size: number, w: number, h: number): FrameSpec {
+/** Outlined word for pop-ups; the frame widens to fit longer translations. */
+function word(name: string, text: string, size: number, minW: number, h: number): FrameSpec {
+  const measure = document.createElement('canvas').getContext('2d')!;
+  measure.font = `900 ${size}px ${FONT_FAMILY}`;
+  const w = Math.ceil(Math.max(minW, measure.measureText(text).width + size * 0.4));
   return {
     name,
     w,
@@ -865,18 +888,23 @@ function word(name: string, text: string, size: number, w: number, h: number): F
   };
 }
 
-const words: FrameSpec[] = [
-  word('w_merge', '합체!', 64, 200, 84),
-  word('w_split', '분해!', 64, 200, 84),
-  word('w_smash', '돌파!', 64, 200, 84),
-  word('w_boss', '보스 출현', 72, 360, 96),
-  word('w_win', '승리!', 96, 280, 120),
-  word('w_lose', '전멸', 96, 280, 120),
-  word('g_merge', '합체', 52, 150, 70),
-  word('g_split', '분해', 52, 150, 70),
-];
+/** Words are drawn in the current language, so they are built when the atlas is. */
+function wordFrames(): FrameSpec[] {
+  return [
+    word('w_merge', t('word.merge'), 64, 200, 84),
+    word('w_split', t('word.split'), 64, 200, 84),
+    word('w_smash', t('word.smash'), 64, 200, 84),
+    word('w_boss', t('word.boss'), 72, 360, 96),
+    word('w_win', t('word.win'), 96, 280, 120),
+    word('w_lose', t('word.lose'), 96, 280, 120),
+    word('g_merge', t('gate.merge'), 52, 150, 70),
+    word('g_split', t('gate.split'), 52, 150, 70),
+  ];
+}
 
-export const FRAMES: readonly FrameSpec[] = [...basics, ...allies, ...zombies, ...bosses, ...props, ...icons, ...words];
+export function allFrames(): FrameSpec[] {
+  return [...basics, ...allies, ...zombies, ...bosses, ...props, ...icons, ...wordFrames()];
+}
 
 /** Frame names by sim tier index and by zombie/boss kind id. */
 export const UNIT_FRAMES = ['u0', 'u1', 'u2', 'u3'] as const;

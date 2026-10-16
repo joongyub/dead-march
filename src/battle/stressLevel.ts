@@ -19,7 +19,7 @@ export function stressLevel(): LevelData {
   }
   return {
     id: 0,
-    name: '스트레스 테스트',
+    name: 'Stress test',
     length: z + 400,
     start: 5000,
     events,

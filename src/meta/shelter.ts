@@ -44,7 +44,6 @@ export interface ShelterData {
 
 export const SHELTER = shelterData as ShelterData;
 export const RESOURCE_IDS: readonly ResourceId[] = ['food', 'scrap', 'fuel'];
-export const RESOURCE_NAMES: Record<ResourceId, string> = { food: '식량', scrap: '고철', fuel: '연료' };
 export const BUILDING_IDS: readonly BuildingId[] = ['wall', 'armory', 'garage', 'farm', 'radio'];
 
 const byId = new Map<BuildingId, BuildingDef>(SHELTER.buildings.map((b) => [b.id, b]));
@@ -94,6 +93,18 @@ export function upgrade(state: ShelterState, id: BuildingId): boolean {
   for (const r of RESOURCE_IDS) state.resources[r] -= cost[r] ?? 0;
   state.buildings[id] = levelOf(state.buildings, id) + 1;
   return true;
+}
+
+/** Order the tutorial suggests upgrades in: what helps the next battle first. */
+const SUGGESTED: readonly BuildingId[] = ['wall', 'armory', 'farm', 'radio', 'garage'];
+
+/** The upgrade a tutorial points at: the first affordable one in SUGGESTED, or null if none is. */
+export function suggestedUpgrade(state: ShelterState): BuildingId | null {
+  for (const id of SUGGESTED) {
+    const cost = nextCost(state.buildings, id);
+    if (cost && canAfford(state.resources, cost)) return id;
+  }
+  return null;
 }
 
 /** Battle bonuses from the wall, armory and garage. */

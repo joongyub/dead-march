@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Colors, FONT_FAMILY, SceneKeys, TextureKeys } from '../config';
 import { Button } from '../ui/Button';
+import { t } from '../i18n';
 import { BaseScene } from './BaseScene';
 import type { BattleScene } from './BattleScene';
 
@@ -21,9 +22,9 @@ export class PauseScene extends BaseScene {
     this.dim = this.add.image(0, 0, TextureKeys.Pixel).setOrigin(0).setTint(0x000000).setAlpha(0.65);
     this.dim.setInteractive(); // swallow taps so nothing underneath reacts
     this.label = this.add
-      .text(0, 0, '일시정지', { fontFamily: FONT_FAMILY, fontSize: '64px', color: Colors.text, fontStyle: 'bold' })
+      .text(0, 0, t('pause.title'), { fontFamily: FONT_FAMILY, fontSize: '64px', color: Colors.text, fontStyle: 'bold' })
       .setOrigin(0.5);
-    this.resumeButton = new Button(this, 0, 0, '계속하기', () => {
+    this.resumeButton = new Button(this, 0, 0, t('pause.resume'), () => {
       this.scene.stop();
       this.scene.resume(SceneKeys.Battle);
     });
@@ -31,7 +32,7 @@ export class PauseScene extends BaseScene {
       this,
       0,
       0,
-      '다시 하기',
+      t('common.retry'),
       () => {
         this.scene.stop();
         const battle = this.scene.get(SceneKeys.Battle) as BattleScene;
@@ -43,7 +44,7 @@ export class PauseScene extends BaseScene {
       this,
       0,
       0,
-      '로비로',
+      t('common.lobby'),
       () => {
         this.scene.stop(SceneKeys.Battle);
         this.scene.start(SceneKeys.Lobby);
@@ -54,7 +55,7 @@ export class PauseScene extends BaseScene {
       this,
       0,
       0,
-      '설정',
+      t('common.settings'),
       () => {
         this.scene.pause();
         this.scene.launch(SceneKeys.Settings, { from: SceneKeys.Pause });

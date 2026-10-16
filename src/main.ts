@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { audio } from './audio/Audio';
 import { save } from './game/save';
 import { Colors, DESIGN_HEIGHT, DESIGN_WIDTH, MAX_DPR } from './config';
+import { resolveLang, setLang } from './i18n';
 import { flags } from './platform/flags';
 import { installMobileGuards } from './platform/mobile';
 import { BattleScene } from './scenes/BattleScene';
@@ -12,6 +13,7 @@ import { PreloadScene } from './scenes/PreloadScene';
 import { ResultScene } from './scenes/ResultScene';
 import { SettingsScene } from './scenes/SettingsScene';
 import { ShelterScene } from './scenes/ShelterScene';
+import { TitleScene } from './scenes/TitleScene';
 
 installMobileGuards();
 
@@ -21,6 +23,9 @@ installMobileGuards();
  * shrink below that and the browser scales it instead (cheaper than rendering more pixels).
  */
 const minCssWidth = DESIGN_WIDTH / MAX_DPR;
+
+// Device language until the save (which may hold the player's choice) is loaded.
+setLang(resolveLang('auto'));
 
 const game = new Phaser.Game({
   type: Phaser.AUTO, // WebGL, falling back to Canvas on devices without it
@@ -43,7 +48,7 @@ const game = new Phaser.Game({
   // The limiter is on at a rate no screen reaches, so calm scenes can lower it (core/frameRate.ts).
   fps: { target: 60, limit: 240 },
   input: { activePointers: 2 },
-  scene: [BootScene, PreloadScene, LobbyScene, ShelterScene, BattleScene, PauseScene, ResultScene, SettingsScene],
+  scene: [BootScene, PreloadScene, TitleScene, LobbyScene, ShelterScene, BattleScene, PauseScene, ResultScene, SettingsScene],
 });
 
 // Browsers only allow sound after a touch; every touch makes sure audio is running.

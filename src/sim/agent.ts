@@ -95,7 +95,8 @@ export function armyStrength(army: Army): number {
   return army.power + 3 * army.dpsAt(0);
 }
 
-function greedySide(sim: BattleSim, gate: SimGate): number {
+/** The gate side (0 left, 1 right) that leaves the army stronger right now. */
+export function greedySide(sim: BattleSim, gate: SimGate): number {
   const tryOp = (op: SimGate['left']) => {
     const army = new Army(sim.rules.tiers);
     for (let i = 0; i < army.counts.length; i++) army.counts[i] = sim.army.counts[i];

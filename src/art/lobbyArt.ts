@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import { addCanvasTexture } from './canvasTexture';
 import { seeded } from './draw';
 
 export const LOBBY_BG = 'lobby_bg';
@@ -155,7 +156,7 @@ export function buildLobbyBackground(scene: Phaser.Scene): void {
   c.fillStyle = vignette;
   c.fillRect(0, 0, W, H);
 
-  scene.textures.addCanvas(LOBBY_BG, canvas);
+  addCanvasTexture(scene, LOBBY_BG, canvas);
 }
 
 export const LOBBY_LOGO = 'lobby_logo';
@@ -228,5 +229,5 @@ export function buildLogo(scene: Phaser.Scene): void {
   }
   c.globalCompositeOperation = 'source-over';
 
-  scene.textures.addCanvas(LOBBY_LOGO, canvas);
+  addCanvasTexture(scene, LOBBY_LOGO, canvas);
 }

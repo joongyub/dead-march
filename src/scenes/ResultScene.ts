@@ -4,11 +4,13 @@ import { audio } from '../audio/Audio';
 import { Colors, FONT_FAMILY, SceneKeys } from '../config';
 import { setFrameCap } from '../core/frameRate';
 import type { BattleOutcome } from '../game/progress';
-import { canAfford, nextCost, BUILDING_IDS, RESOURCE_IDS } from '../meta/shelter';
+import { suggestedUpgrade, RESOURCE_IDS } from '../meta/shelter';
 import { save } from '../game/save';
 import { LEVELS } from '../sim/rules';
+import { t } from '../i18n';
 import { RESOURCE_ICON } from '../ui/resourceIcons';
 import { Button } from '../ui/Button';
+import { Coach } from '../ui/Coach';
 import { BaseScene } from './BaseScene';
 
 export interface ResultData {
@@ -32,6 +34,9 @@ export class ResultScene extends BaseScene {
   private rewardTexts: Phaser.GameObjects.BitmapText[] = [];
   private note!: Phaser.GameObjects.Text;
   private buttons: Button[] = [];
+  /** Finger on the shelter button until the first upgrade is bought. */
+  private coach!: Coach;
+  private shelterButton: Button | null = null;
   private result!: ResultData;
   private shown = 0;
 
@@ -54,8 +59,8 @@ export class ResultScene extends BaseScene {
     const secs = Math.round(data.time);
     const time = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     const statLines = data.won
-      ? [`남은 병력 ${formatCount(data.power)}`, `처치한 좀비 ${formatCount(data.kills)}`, `걸린 시간 ${time}`]
-      : [`처치한 좀비 ${formatCount(data.kills)}`, `버틴 시간 ${time}`];
+      ? [t('result.powerLeft', { n: formatCount(data.power) }), t('result.kills', { n: formatCount(data.kills) }), t('result.time', { t: time })]
+      : [t('result.kills', { n: formatCount(data.kills) }), t('result.survived', { t: time })];
     this.lines = this.add
       .text(0, 0, statLines.join('\n'), { fontFamily: FONT_FAMILY, fontSize: '32px', color: Colors.text, align: 'center', lineSpacing: 12 })
       .setOrigin(0.5, 0);
@@ -67,37 +72,42 @@ export class ResultScene extends BaseScene {
     }
 
     let noteText = '';
-    if (data.outcome?.firstClear && data.stage < LEVELS.length) noteText = `스테이지 ${data.stage + 1} 열림!`;
-    else if (data.outcome?.firstClear) noteText = '모든 스테이지를 깼습니다!';
-    else if (!data.won && data.stage >= 8) noteText = '피난처를 강화하면 더 강해져요';
+    if (data.outcome?.firstClear && data.stage < LEVELS.length) noteText = t('result.unlocked', { n: data.stage + 1 });
+    else if (data.outcome?.firstClear) noteText = t('result.allClear');
+    else if (!data.won && data.stage >= 8) noteText = t('result.upgradeHint');
     this.note = this.add
       .text(0, 0, noteText, { fontFamily: FONT_FAMILY, fontSize: '28px', color: Colors.accent, fontStyle: 'bold' })
       .setOrigin(0.5);
 
+    // With an upgrade in reach, the shelter comes first after a loss, and after the first battles until
+    // the player has bought an upgrade once.
+    const canUpgrade = data.stage > 0 && suggestedUpgrade(save.data) !== null;
+    const shelterFirst = canUpgrade && (!data.won || !save.data.tutorial.shelter);
     const next = data.outcome?.nextStage ?? data.stage;
-    if (data.won && data.stage > 0 && data.stage < LEVELS.length) {
-      this.buttons.push(new Button(this, 0, 0, '다음 스테이지', () => this.startBattle(next), { width: 460 }));
-    }
-    // After a loss with an upgrade in reach, the shelter is the better next step than another try.
-    const canUpgrade = data.stage > 0 && BUILDING_IDS.some((id) => {
-      const cost = nextCost(save.data.buildings, id);
-      return !!cost && canAfford(save.data.resources, cost);
-    });
-    const shelterFirst = !data.won && canUpgrade;
-    const retry = new Button(this, 0, 0, '다시 하기', () => this.startBattle(data.stage), {
+    const nextButton =
+      data.won && data.stage > 0 && data.stage < LEVELS.length
+        ? new Button(this, 0, 0, t('result.next'), () => this.startBattle(next), {
+            width: 460,
+            color: shelterFirst ? Colors.neutral : Colors.primary,
+          })
+        : null;
+    const retry = new Button(this, 0, 0, t('common.retry'), () => this.startBattle(data.stage), {
       width: 460,
       color: data.won || shelterFirst ? Colors.neutral : Colors.primary,
     });
-    const shelter = new Button(this, 0, 0, canUpgrade ? '피난처 강화하기' : '피난처', () => this.toShelter(), {
+    const shelter = new Button(this, 0, 0, canUpgrade ? t('result.shelterUpgrade') : t('result.shelter'), () => this.toShelter(), {
       width: 460,
       color: shelterFirst ? Colors.primary : Colors.neutral,
     });
-    if (data.stage > 0) this.buttons.push(...(shelterFirst ? [shelter, retry] : [retry, shelter]));
-    else {
-      shelter.destroy();
-      this.buttons.push(retry);
-    }
-    this.buttons.push(new Button(this, 0, 0, '로비로', () => this.toLobby(), { width: 460, color: Colors.neutral }));
+    if (shelterFirst) this.buttons.push(shelter);
+    if (nextButton) this.buttons.push(nextButton);
+    this.buttons.push(retry);
+    if (data.stage > 0 && !shelterFirst) this.buttons.push(shelter);
+    if (data.stage === 0) shelter.destroy();
+    this.shelterButton = data.stage > 0 ? shelter : null;
+    this.coach = new Coach(this, 10);
+    if (canUpgrade && !save.data.tutorial.shelter) this.coach.show('');
+    this.buttons.push(new Button(this, 0, 0, t('common.lobby'), () => this.toLobby(), { width: 460, color: Colors.neutral }));
 
     // Panel slides up a little as it appears.
     const items = [this.panel, this.title, this.lines, this.note, ...this.rewardIcons, ...this.rewardTexts, ...this.buttons];
@@ -109,6 +119,10 @@ export class ResultScene extends BaseScene {
   }
 
   override update(_time: number, delta: number): void {
+    if (this.coach.visible && this.shelterButton) {
+      this.coach.tick(delta / 1000);
+      this.coach.pointAt(this.shelterButton.x + 170, this.shelterButton.y + 20);
+    }
     // Rewards count up over half a second.
     const reward = this.result.outcome?.reward;
     if (!reward || this.shown >= 1) return;

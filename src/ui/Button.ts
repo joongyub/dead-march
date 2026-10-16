@@ -1,0 +1,50 @@
+import Phaser from 'phaser';
+import { Colors, FONT_FAMILY, TextureKeys } from '../config';
+
+export interface ButtonOptions {
+  width?: number;
+  height?: number;
+  color?: number;
+  fontSize?: number;
+}
+
+/** Rounded button that fires on release (like native buttons), with a press-down scale. */
+export class Button extends Phaser.GameObjects.Container {
+  private readonly bg: Phaser.GameObjects.NineSlice;
+  private pressed = false;
+
+  constructor(
+    scene: Phaser.Scene,
+    x: number,
+    y: number,
+    label: string,
+    onClick: () => void,
+    { width = 360, height = 104, color = Colors.primary, fontSize = 40 }: ButtonOptions = {},
+  ) {
+    super(scene, x, y);
+    this.bg = scene.add.nineslice(0, 0, TextureKeys.Panel, undefined, width, height, 20, 20, 20, 20).setTint(color);
+    const text = scene.add
+      .text(0, 0, label, { fontFamily: FONT_FAMILY, fontSize: `${fontSize}px`, color: Colors.text, fontStyle: 'bold' })
+      .setOrigin(0.5);
+    this.add([this.bg, text]);
+    this.setSize(width, height);
+
+    this.bg.setInteractive({ useHandCursor: true });
+    this.bg.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.pressed = true;
+      this.setScale(0.96);
+    });
+    this.bg.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => this.release());
+    this.bg.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
+      const wasPressed = this.pressed;
+      this.release();
+      if (wasPressed) onClick();
+    });
+    scene.add.existing(this);
+  }
+
+  private release(): void {
+    this.pressed = false;
+    this.setScale(1);
+  }
+}

@@ -3,8 +3,9 @@ import { storage } from '../platform/storage';
 /**
  * Everything the game remembers between sessions, in one versioned document.
  *
- * Bump SAVE_VERSION whenever the shape changes and add a migration from the previous version, so an
- * update never wipes a player's progress. Each write also keeps the previous good copy as a backup;
+ * Bump SAVE_VERSION whenever an existing field changes shape or meaning, and add a migration from the
+ * previous version, so an update never wipes a player's progress (a new field with a default only needs
+ * freshSave and normalize). Each write also keeps the previous good copy as a backup;
  * a corrupted save (bad JSON, failed checksum) is restored from it instead of being reset.
  */
 export const SAVE_VERSION = 2;
@@ -40,6 +41,8 @@ export interface SaveData {
   idle: { collectedAt: number; lastSeen: number };
   /** Purchases and ad-free flag (stage 10). */
   shop: { noAds: boolean; owned: string[] };
+  /** What the game learned about this device: battles ran slow, so 'auto' low-spec mode is on. */
+  device: { lowSpec: boolean };
 }
 
 export function freshSave(now = Date.now()): SaveData {
@@ -54,6 +57,7 @@ export function freshSave(now = Date.now()): SaveData {
     stats: { battles: 0, wins: 0, zombies: 0 },
     idle: { collectedAt: now, lastSeen: now },
     shop: { noAds: false, owned: [] },
+    device: { lowSpec: false },
   };
 }
 
@@ -76,6 +80,7 @@ function normalize(raw: Record<string, unknown>): SaveData {
   merged.stats = { ...base.stats, ...(raw.stats as object) };
   merged.idle = { ...base.idle, ...(raw.idle as object) };
   merged.shop = { ...base.shop, ...(raw.shop as object) };
+  merged.device = { ...base.device, ...(raw.device as object) };
   merged.best = { ...(raw.best as object) };
   merged.buildings = { ...(raw.buildings as object) };
   merged.version = SAVE_VERSION;

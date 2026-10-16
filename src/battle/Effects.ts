@@ -25,6 +25,8 @@ interface Fx {
   a1: number;
   vr: number;
   curve: Curve;
+  /** Set on spawn: the first update writes scale, alpha and position even if they never change. */
+  fresh: boolean;
 }
 
 interface Decal {
@@ -43,7 +45,12 @@ interface FloatText {
   life: number;
 }
 
-const MAX_FX = 180;
+/**
+ * Effect sprites: a normal-blend pool and an additive pool (glows, rings). Each pool keeps one blend mode
+ * and depth for good, because changing a sprite's depth makes the scene re-sort its whole display list.
+ */
+const MAX_FX_NORMAL = 125;
+const MAX_FX_ADD = 55;
 const MAX_DECALS = 48;
 const MAX_TEXTS = 12;
 const DECAL_LIFE = 5;
@@ -57,7 +64,8 @@ export class Effects {
   private readonly fx: Fx[] = [];
   private readonly decals: Decal[] = [];
   private readonly texts: FloatText[] = [];
-  private fxCursor = 0;
+  private normalCursor = 0;
+  private addCursor = 0;
   private decalCursor = 0;
   private textCursor = 0;
   /** Multiplies how many particles bursts spawn (low-spec mode halves it). */
@@ -66,18 +74,23 @@ export class Effects {
   constructor(
     scene: Phaser.Scene,
     groundDepth: number,
-    private readonly fxDepth: number,
+    fxDepth: number,
     /** Additive effects sit on their own depth so they render as one batch after the normal ones. */
-    private readonly addDepth: number,
+    addDepth: number,
     textDepth: number,
   ) {
     for (let i = 0; i < MAX_DECALS; i++) {
       const img = scene.add.image(0, 0, ATLAS, 'blood').setVisible(false).setDepth(groundDepth);
       this.decals.push({ img, active: false, x: 0, z: 0, life: 0 });
     }
-    for (let i = 0; i < MAX_FX; i++) {
-      const img = scene.add.image(0, 0, ATLAS, 'spark').setVisible(false).setDepth(fxDepth);
-      this.fx.push({ img, active: false, x: 0, y: 0, vx: 0, vy: 0, drag: 0, life: 0, max: 1, s0: 1, s1: 1, a0: 1, a1: 0, vr: 0, curve: Curve.Linear });
+    for (let i = 0; i < MAX_FX_NORMAL + MAX_FX_ADD; i++) {
+      const add = i >= MAX_FX_NORMAL;
+      const img = scene.add
+        .image(0, 0, ATLAS, 'spark')
+        .setVisible(false)
+        .setDepth(add ? addDepth : fxDepth)
+        .setBlendMode(add ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL);
+      this.fx.push({ img, active: false, x: 0, y: 0, vx: 0, vy: 0, drag: 0, life: 0, max: 1, s0: 1, s1: 1, a0: 1, a1: 0, vr: 0, curve: Curve.Linear, fresh: false });
     }
     for (let i = 0; i < MAX_TEXTS; i++) {
       const text = scene.add.bitmapText(0, 0, NUM_FONT, '', 40).setOrigin(0.5).setVisible(false).setDepth(textDepth);
@@ -92,22 +105,26 @@ export class Effects {
     return n;
   }
 
-  private nextFx(): Fx {
-    // Round-robin: when all are busy the oldest gets reused, which is invisible in a busy fight.
-    for (let i = 0; i < MAX_FX; i++) {
-      const f = this.fx[(this.fxCursor + i) % MAX_FX];
-      if (!f.active) {
-        this.fxCursor = (this.fxCursor + i + 1) % MAX_FX;
-        return f;
+  private nextFx(add: boolean): Fx {
+    // Round-robin within the pool: when all are busy the oldest gets reused, invisible in a busy fight.
+    const base = add ? MAX_FX_NORMAL : 0;
+    const size = add ? MAX_FX_ADD : MAX_FX_NORMAL;
+    const cursor = add ? this.addCursor : this.normalCursor;
+    let pick = cursor;
+    for (let i = 0; i < size; i++) {
+      const j = (cursor + i) % size;
+      if (!this.fx[base + j].active) {
+        pick = j;
+        break;
       }
     }
-    const f = this.fx[this.fxCursor];
-    this.fxCursor = (this.fxCursor + 1) % MAX_FX;
-    return f;
+    if (add) this.addCursor = (pick + 1) % size;
+    else this.normalCursor = (pick + 1) % size;
+    return this.fx[base + pick];
   }
 
-  private spawn(frame: string, x: number, y: number, life: number, tint: number, curve: Curve = Curve.Linear): Fx {
-    const f = this.nextFx();
+  private spawn(frame: string, x: number, y: number, life: number, tint: number, curve: Curve = Curve.Linear, add = false): Fx {
+    const f = this.nextFx(add);
     f.active = true;
     f.x = x;
     f.y = y;
@@ -122,13 +139,9 @@ export class Effects {
     f.a1 = 0;
     f.vr = 0;
     f.curve = curve;
+    f.fresh = true;
     f.img.setFrame(frame).setTint(tint).setPosition(x, y).setRotation(0).setScale(1).setAlpha(1).setVisible(true);
-    if (f.img.blendMode !== Phaser.BlendModes.NORMAL) f.img.setBlendMode(Phaser.BlendModes.NORMAL).setDepth(this.fxDepth);
     return f;
-  }
-
-  private additive(f: Fx): void {
-    if (f.img.blendMode !== Phaser.BlendModes.ADD) f.img.setBlendMode(Phaser.BlendModes.ADD).setDepth(this.addDepth);
   }
 
   /** A bullet streak from (x0,y0) to (x1,y1). */
@@ -144,21 +157,19 @@ export class Effects {
 
   /** Short additive flash (muzzle, hit, explosion core). */
   glow(x: number, y: number, size: number, tint: number, life = 0.12): void {
-    const f = this.spawn('soft', x, y, life, tint);
+    const f = this.spawn('soft', x, y, life, tint, Curve.Linear, true);
     const s = size / 64;
     f.s0 = s;
     f.s1 = s * 1.4;
     f.a0 = 0.7;
-    this.additive(f);
   }
 
   /** Expanding ring (merges, shockwaves). */
   ring(x: number, y: number, size: number, tint: number, life = 0.35): void {
-    const f = this.spawn('ring', x, y, life, tint);
+    const f = this.spawn('ring', x, y, life, tint, Curve.Linear, true);
     f.s0 = (size / 128) * 0.25;
     f.s1 = size / 128;
     f.a0 = 0.8;
-    this.additive(f);
   }
 
   /** Burst of small pieces flying out. */
@@ -233,17 +244,23 @@ export class Effects {
         f.vx *= k;
         f.vy *= k;
       }
-      f.x += f.vx * dt;
-      f.y += f.vy * dt;
       const t = 1 - f.life / f.max;
+      // Only write what changes: many effects stand still or keep one size, and every setter call
+      // shows up in the profile when 150+ effects are alive.
       if (f.curve === Curve.Pop) {
         const s = t < 0.15 ? (t / 0.15) * 1.25 : t < 0.3 ? 1.25 - ((t - 0.15) / 0.15) * 0.25 : 1;
         f.img.setScale(s).setAlpha(t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1);
       } else {
-        f.img.setScale(f.s0 + (f.s1 - f.s0) * t).setAlpha(f.a0 + (f.a1 - f.a0) * t);
+        if (f.s0 !== f.s1 || f.fresh) f.img.setScale(f.s0 + (f.s1 - f.s0) * t);
+        if (f.a0 !== f.a1 || f.fresh) f.img.setAlpha(f.a0 + (f.a1 - f.a0) * t);
       }
       if (f.vr !== 0) f.img.rotation += f.vr * dt;
-      f.img.setPosition(f.x, f.y);
+      if (f.vx !== 0 || f.vy !== 0 || f.fresh) {
+        f.x += f.vx * dt;
+        f.y += f.vy * dt;
+        f.img.setPosition(f.x, f.y);
+      }
+      f.fresh = false;
     }
 
     for (const d of this.decals) {

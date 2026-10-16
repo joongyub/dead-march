@@ -16,6 +16,7 @@ import {
 import { audio } from '../audio/Audio';
 import { Colors, DESIGN_HEIGHT, DESIGN_WIDTH, FONT_FAMILY, SceneKeys } from '../config';
 import { setFrameCap } from '../core/frameRate';
+import { viewWidth } from '../core/quality';
 import { save } from '../game/save';
 import { buildingDesc, buildingName, resourceName, t } from '../i18n';
 import {
@@ -235,7 +236,7 @@ export class ShelterScene extends BaseScene {
     const dt = Math.min(delta, 100) / 1000;
     this.clock += dt;
     const fy = this.originY + CAMPFIRE.y;
-    const fx = this.scale.width / 2 + CAMPFIRE.x - DESIGN_WIDTH / 2;
+    const fx = viewWidth(this.scale) / 2 + CAMPFIRE.x - DESIGN_WIDTH / 2;
     const flicker = 0.85 + Math.sin(this.clock * 13) * 0.08 + Math.sin(this.clock * 7.3) * 0.07;
     this.fireGlow.setPosition(fx, fy - 10).setScale(2.4 * flicker, 1.8 * flicker).setAlpha(0.75 * flicker);
     for (let i = 0; i < SITTERS; i++) {
@@ -275,7 +276,7 @@ export class ShelterScene extends BaseScene {
       if (this.coach.visible) this.coach.hide();
       return;
     }
-    const width = this.scale.width;
+    const width = viewWidth(this.scale);
     let x = 0;
     let y = 0;
     let message = '';

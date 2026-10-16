@@ -14,6 +14,8 @@ const PANEL_H = 92;
 interface Side {
   panel: Phaser.GameObjects.Image;
   label: Phaser.GameObjects.BitmapText;
+  /** Unscaled label width, measured once per gate (reading BitmapText.width re-measures the text). */
+  labelW: number;
   word: Phaser.GameObjects.Image;
   icon: Phaser.GameObjects.Image;
 }
@@ -55,6 +57,7 @@ export class GateView {
       const side = (): Side => ({
         panel: scene.add.image(0, 0, ATLAS, 'gate').setDisplaySize(PANEL_W, PANEL_H).setDepth(Depth.Gates).setVisible(false),
         label: scene.add.bitmapText(0, 0, NUM_FONT, '', 64).setOrigin(0.5).setDepth(Depth.Gates).setVisible(false),
+        labelW: 0,
         word: scene.add.image(0, 0, ATLAS, 'g_merge').setDepth(Depth.Gates).setVisible(false),
         icon: scene.add.image(0, 0, ATLAS, 'u1').setDepth(Depth.Gates).setVisible(false),
       });
@@ -97,7 +100,7 @@ export class GateView {
         const hasIcon = side.icon.visible;
         side.label.setPosition(cx - (hasIcon ? 26 : 0), y).setScale(scale).setAlpha(alpha);
         side.word.setPosition(cx, y).setScale(scale).setAlpha(alpha);
-        side.icon.setPosition(cx + side.label.width / 2 + 8, y).setScale(scale * 1.15).setAlpha(alpha);
+        side.icon.setPosition(cx + (side.labelW * scale) / 2 + 8, y).setScale(scale * 1.15).setAlpha(alpha);
       }
       const postAlpha = g.passed ? Math.max(0, 1 - v.fade * 2) : 1;
       v.posts[0].setPosition(roadX + ROAD_LEFT + 4, y + PANEL_H / 2 + 8).setAlpha(postAlpha);
@@ -123,7 +126,8 @@ export class GateView {
       side.panel.setTint(colorFor(op)).setVisible(true);
       const word = op.kind === 'merge' || op.kind === 'split';
       side.word.setFrame(op.kind === 'split' ? 'g_split' : 'g_merge').setVisible(word);
-      side.label.setText(labelFor(op)).setVisible(!word);
+      side.label.setText(labelFor(op)).setScale(1).setVisible(!word);
+      side.labelW = side.label.width;
       const unit = op.kind === 'add' && op.tier > 0;
       side.icon.setFrame(UNIT_FRAMES[op.tier]).setVisible(unit);
     }

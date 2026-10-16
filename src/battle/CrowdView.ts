@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { ATLAS } from '../art/atlas';
 import { UNIT_FRAMES } from '../art/sprites';
+import { quality } from '../core/quality';
 import { TIER_COUNT } from '../sim/types';
 import { Depth } from './depth';
 import type { Effects } from './Effects';
@@ -33,6 +34,7 @@ export class CrowdView {
   private slotsFor = -1;
   private slotsRadius = -1;
   private lastPower = -1;
+  private lastCap = -1;
   private time = 0;
   /** Screen position of the crowd center, updated every frame. */
   x = 0;
@@ -53,7 +55,10 @@ export class CrowdView {
   sync(counts: readonly number[], power: number, radius: number, fx: Effects, roadX: number, distance: number): void {
     let same = true;
     for (let i = 0; i < TIER_COUNT; i++) if (counts[i] !== this.lastCounts[i]) same = false;
-    if (same && radius === this.slotsRadius) return;
+    // Low-spec mode shows fewer units (core/quality.ts).
+    const cap = Math.round(MAX_CROWD_SPRITES * quality.unitScale);
+    if (same && radius === this.slotsRadius && cap === this.lastCap) return;
+    this.lastCap = cap;
     const lost = this.lastPower >= 0 && power < this.lastPower;
     this.lastPower = power;
     for (let i = 0; i < TIER_COUNT; i++) this.lastCounts[i] = counts[i];
@@ -64,8 +69,8 @@ export class CrowdView {
     let drawn = 0;
     for (let i = TIER_COUNT - 1; i >= 0; i--) {
       let d = counts[i];
-      if (total > MAX_CROWD_SPRITES) d = counts[i] > 0 ? Math.max(1, Math.floor((counts[i] * MAX_CROWD_SPRITES) / total)) : 0;
-      d = Math.min(d, MAX_CROWD_SPRITES - drawn);
+      if (total > cap) d = counts[i] > 0 ? Math.max(1, Math.floor((counts[i] * cap) / total)) : 0;
+      d = Math.min(d, cap - drawn);
       this.display[i] = d;
       drawn += d;
     }
@@ -111,15 +116,18 @@ export class CrowdView {
     this.shown = n;
 
     if (n !== this.slotsFor || radius !== this.slotsRadius) {
+      // Lower on screen draws in front. The front-to-back order of the slots depends only on how many
+      // there are (the radius scales them all alike), so depths change, and the scene re-sorts its
+      // display list, only when the count changes; every setDepth call queues a full re-sort.
+      const reorder = n !== this.slotsFor;
       this.slotsFor = n;
       this.slotsRadius = radius;
       for (let i = 0; i < n; i++) {
-        const r = radius * Math.sqrt((i + 0.5) / n);
+        const u = Math.sqrt((i + 0.5) / n);
         const a = i * GOLDEN_ANGLE;
-        this.tx[i] = Math.cos(a) * r;
-        this.ty[i] = Math.sin(a) * r * 0.8;
-        // Lower on screen draws in front; fixed per slot so nothing re-sorts every frame.
-        this.sprites[i].setDepth(Depth.Actors + 0.5 + (this.ty[i] + 200) / 1000);
+        this.tx[i] = Math.cos(a) * u * radius;
+        this.ty[i] = Math.sin(a) * u * radius * 0.8;
+        if (reorder) this.sprites[i].setDepth(Depth.Actors + 0.5 + (Math.sin(a) * u + 1) / 4);
       }
     }
   }

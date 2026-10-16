@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { audio } from './audio/Audio';
 import { save } from './game/save';
 import { Colors, DESIGN_HEIGHT, DESIGN_WIDTH, MAX_DPR } from './config';
+import { quality, setLowSpec } from './core/quality';
+import { greedySide } from './sim/agent';
 import { resolveLang, setLang } from './i18n';
 import { flags } from './platform/flags';
 import { installMobileGuards } from './platform/mobile';
@@ -67,7 +69,9 @@ if (flags.debug) {
       const start = () => {
         const monitor = new PerfMonitor(game);
         new DebugOverlay(monitor);
-        Object.assign(window, { __dm: { game, monitor, save } });
+        Object.assign(window, {
+          __dm: { game, monitor, save, quality, greedySide, setLowSpec: (low: boolean) => setLowSpec(game, low) },
+        });
       };
       if (game.isRunning) start();
       else game.events.once(Phaser.Core.Events.READY, start);

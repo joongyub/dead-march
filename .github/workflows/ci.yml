@@ -23,3 +23,41 @@ jobs:
         run: npm test
       - name: Build
         run: npx vite build
+
+  # Performance budgets in a phone-sized headless Chrome (no GPU): logic time, draw calls, unit
+  # sprites, scene switch time, low-spec mode, a 30-battle memory leak check and the CPU cost per frame
+  # with the CPU slowed 4×. A change that breaks a budget fails here.
+  perf:
+    name: Performance budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Find Chrome
+        run: echo "CHROME_PATH=$(command -v google-chrome || command -v chromium)" >> "$GITHUB_ENV"
+      # Phones ship a Korean font. Without one, Chrome searches every installed font for each new
+      # Hangul letter, which makes scenes with fresh text slow to open and the screenshots unreadable.
+      - name: Korean font
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends fonts-nanum
+      - name: Smoke test (flow + budgets)
+        run: npm run smoke
+      - name: Memory leak check (30 battles)
+        run: npm run leak
+      - name: CPU per frame at 4x throttle
+        run: npm run perf -- --quick
+      - name: Keep screenshots and numbers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-${{ github.sha }}
+          path: |
+            artifacts/*.png
+            artifacts/*.json
+          retention-days: 14

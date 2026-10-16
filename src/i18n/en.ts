@@ -33,6 +33,10 @@ export const en: Record<MessageKey, string> = {
   'settings.langAuto': 'Auto',
   'settings.langNote': 'The game restarts to switch language',
   'settings.licenses': 'Open-source licenses',
+  'settings.lowSpec': 'Low-spec mode',
+  'settings.on': 'On',
+  'settings.off': 'Off',
+  'battle.lowSpec': 'Switched to low-spec mode (see Settings)',
 
   'result.powerLeft': 'Army left {n}',
   'result.kills': 'Zombies killed {n}',

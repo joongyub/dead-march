@@ -43,14 +43,19 @@ async function main() {
         ([x, y]) => {
           const { game } = window.__dm;
           const rect = game.canvas.getBoundingClientRect();
-          const k = rect.width / game.scale.width;
+          // Game units are canvas pixels / renderScale (low-spec mode renders at 75%).
+          const k = rect.width / (game.scale.width / window.__dm.quality.renderScale);
           return { x: rect.left + x * k, y: rect.top + y * k };
         },
         [gx, gy],
       );
       await page.touchscreen.tap(pos.x, pos.y);
     };
-    const size = () => page.evaluate(() => ({ w: window.__dm.game.scale.width, h: window.__dm.game.scale.height }));
+    const size = () =>
+      page.evaluate(() => {
+        const { game, quality } = window.__dm;
+        return { w: game.scale.width / quality.renderScale, h: game.scale.height / quality.renderScale };
+      });
     // Taps a button by its scene field name, wherever the layout put it.
     const tapButton = async (sceneKey, field) => {
       const pos = await page.evaluate(
@@ -68,7 +73,8 @@ async function main() {
         ([x0, y, x1]) => {
           const { game } = window.__dm;
           const rect = game.canvas.getBoundingClientRect();
-          const k = rect.width / game.scale.width;
+          // Game units are canvas pixels / renderScale (low-spec mode renders at 75%).
+          const k = rect.width / (game.scale.width / window.__dm.quality.renderScale);
           return { x0: rect.left + x0 * k, x1: rect.left + x1 * k, y: rect.top + y * k };
         },
         [gx0, gy, gx1],
@@ -138,6 +144,11 @@ async function main() {
     await page.goto(`${base}?debug=1`);
     await page.waitForFunction(() => window.__dm?.monitor && window.__dm.game.scene.isActive('Title'), null, { timeout: 15000 });
     await watchSwitches();
+    // Budgets are checked at full quality; low-spec mode gets its own check at the end.
+    await page.evaluate(() => {
+      window.__dm.save.data.settings.lowSpec = 'off';
+      window.__dm.save.commit();
+    });
     await sleep(1200);
     results.scenesAtStart = await activeScenes();
     await page.screenshot({ path: `${OUT}/0-title.png` });
@@ -150,13 +161,14 @@ async function main() {
     results.gameSize = `${w}x${h}`;
 
     // Settings open over the lobby and close back to it.
+    // Waits instead of fixed sleeps: the CI machine's frames take up to half a second.
+    const settle = (fn) => page.waitForFunction(fn, null, { timeout: 5000 }).then(() => true, () => false);
     await tapButton('Lobby', 'settingsButton');
-    await sleep(500);
-    results.settingsOpened = await page.evaluate(() => window.__dm.game.scene.isActive('Settings'));
+    results.settingsOpened = await settle(() => window.__dm.game.scene.isActive('Settings'));
+    await sleep(300);
     await page.screenshot({ path: `${OUT}/1b-settings.png` });
     await tapButton('Settings', 'closeButton');
-    await sleep(500);
-    results.lobbyAfterSettings = await page.evaluate(
+    results.lobbyAfterSettings = await settle(
       () => window.__dm.game.scene.isActive('Lobby') && !window.__dm.game.scene.isActive('Settings'),
     );
     await expectSwitch('Battle');
@@ -164,12 +176,12 @@ async function main() {
     await sleep(800);
     results.scenesAfterStart = await activeScenes();
     // Stage 1 on a fresh save opens with the steering lesson; dragging clears it.
-    results.swipeLessonShown = await page.evaluate(() => window.__battle.tutorial.step === 'swipe');
+    results.swipeLessonShown = await settle(() => window.__battle?.tutorial.step === 'swipe');
     await page.screenshot({ path: `${OUT}/2-battle-lesson.png` });
     const { h: gh } = await size();
-    await dragGame(300, gh * 0.8, 520);
-    await sleep(300);
-    results.swipeLearned = await page.evaluate(() => window.__dm.save.data.tutorial.swipe === true && window.__battle.tutorial.step !== 'swipe');
+    // The lesson needs 220 units of finger travel; drag a little more than that.
+    await dragGame(280, gh * 0.8, 540);
+    results.swipeLearned = await settle(() => window.__dm.save.data.tutorial.swipe === true && window.__battle.tutorial.step !== 'swipe');
     await measure('battle');
     await page.screenshot({ path: `${OUT}/2-battle.png` });
 
@@ -178,15 +190,16 @@ async function main() {
       window.__dm.game.events.emit('hidden');
       window.__dm.game.events.emit('visible');
     });
-    await sleep(500);
+    results.battlePausedAfterHidden = await settle(() => window.__dm.game.scene.isPaused('Battle'));
+    await sleep(300);
     results.scenesAfterHidden = await activeScenes();
-    results.battlePausedAfterHidden = await page.evaluate(() =>
-      window.__dm.game.scene.isPaused('Battle'),
-    );
     await page.screenshot({ path: `${OUT}/3-pause.png` });
-    await tapButton('Pause', 'resumeButton'); // 계속하기
-    await sleep(500);
-    results.battleRunningAfterResume = await page.evaluate(() => window.__dm.game.scene.isActive('Battle'));
+    // A tap that lands during one of SwiftShader's 200ms frames is occasionally dropped; one retry.
+    for (let attempt = 0; attempt < 2 && !results.battleRunningAfterResume; attempt++) {
+      await tapButton('Pause', 'resumeButton'); // 계속하기
+      await sleep(500);
+      results.battleRunningAfterResume = await page.evaluate(() => window.__dm.game.scene.isActive('Battle'));
+    }
 
     // Play the rest of the stage at full speed (same rules, no rendering in between) → result screen.
     results.finished = await page.evaluate(() => {
@@ -280,6 +293,29 @@ async function main() {
     results.stressSprites = await page.evaluate(() => window.__battle.debugInfo);
     await page.screenshot({ path: `${OUT}/5-stress.png` });
 
+    // Low-spec mode: with the setting on 'auto', slow frames (every frame is slow here) switch it on
+    // after 3 seconds: 75% canvas, at most 120 unit sprites.
+    await page.evaluate(() => {
+      const { game, save } = window.__dm;
+      save.data.settings.lowSpec = 'auto';
+      save.data.device.lowSpec = false;
+      game.scene.getScene('Battle').scene.restart({ stress: true });
+    });
+    await page.waitForFunction(() => window.__dm.quality.low, null, { timeout: 30000 }).catch(() => {});
+    await sleep(2500);
+    await measure('stressLow', 6000);
+    results.lowSpec = await page.evaluate(() => ({
+      low: window.__dm.quality.low,
+      canvas: `${window.__dm.game.canvas.width}x${window.__dm.game.canvas.height}`,
+      remembered: window.__dm.save.data.device.lowSpec,
+      sprites: window.__battle.debugInfo,
+    }));
+    await page.screenshot({ path: `${OUT}/5b-stress-lowspec.png` });
+    await page.evaluate(() => {
+      window.__dm.save.data.settings.lowSpec = 'off';
+      window.__dm.save.commit();
+    });
+
     // Raw rendering cost with many sprites on screen.
     await page.goto(`${base}?debug=1&bench=2000`);
     await passTitle();
@@ -293,7 +329,7 @@ async function main() {
     await new Promise((r) => server.httpServer.close(r));
   }
 
-  const measured = ['lobby', 'battle', 'shelter', 'stress', 'bench2000'].map((k) => results[k]?.summary).filter(Boolean);
+  const measured = ['lobby', 'battle', 'shelter', 'stress', 'stressLow', 'bench2000'].map((k) => results[k]?.summary).filter(Boolean);
   const unitSprites = (results.stressSprites?.units ?? Infinity) + (results.stressSprites?.zombies ?? Infinity);
   // Work plus the 160ms fade-in has to fit in 300ms.
   const slowestSwitch = Math.max(...(results.switches ?? [{ work: Infinity }]).map((s) => s.work));
@@ -312,7 +348,12 @@ async function main() {
     'logic <= 4ms (stress, 5000+ army)': (results.stress?.summary.logicMsAvg ?? Infinity) <= 4,
     'logic <= 4ms (2000 sprites)': (results.bench2000?.summary.logicMsAvg ?? Infinity) <= 4,
     'unit sprites <= 200 (stress)': unitSprites <= 200,
-    'draw calls <= 20': measured.length === 5 && measured.every((m) => m.drawCallsAvg <= 20),
+    'draw calls <= 20': measured.length === 6 && measured.every((m) => m.drawCallsAvg <= 20),
+    'auto low-spec: slow frames -> 75% canvas, <= 120 unit sprites, remembered':
+      results.lowSpec?.low === true &&
+      results.lowSpec.canvas.startsWith('540x') &&
+      results.lowSpec.remembered === true &&
+      results.lowSpec.sprites.units + results.lowSpec.sprites.zombies <= 120,
     'no JS errors': results.errors.length === 0,
   };
 
@@ -320,6 +361,8 @@ async function main() {
   for (const [label, data] of Object.entries(results)) {
     if (data?.summary) console.log(label.padEnd(10), JSON.stringify(data.summary));
   }
+  console.log('switches  ', JSON.stringify(results.switches));
+  console.log('low-spec  ', JSON.stringify(results.lowSpec));
   for (const [name, ok] of Object.entries(results.checks)) console.log(ok ? 'PASS' : 'FAIL', name);
   if (Object.values(results.checks).includes(false)) process.exitCode = 1;
 }

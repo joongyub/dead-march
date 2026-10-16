@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { audio } from './audio/Audio';
 import { Colors, DESIGN_HEIGHT, DESIGN_WIDTH, MAX_DPR } from './config';
 import { flags } from './platform/flags';
 import { installMobileGuards } from './platform/mobile';
@@ -8,6 +9,7 @@ import { LobbyScene } from './scenes/LobbyScene';
 import { PauseScene } from './scenes/PauseScene';
 import { PreloadScene } from './scenes/PreloadScene';
 import { ResultScene } from './scenes/ResultScene';
+import { SettingsScene } from './scenes/SettingsScene';
 
 installMobileGuards();
 
@@ -36,10 +38,16 @@ const game = new Phaser.Game({
     roundPixels: true,
     powerPreference: 'default', // phones: avoid forcing the hungriest GPU mode (heat, battery)
   },
-  fps: { target: 60 },
+  // The limiter is on at a rate no screen reaches, so calm scenes can lower it (core/frameRate.ts).
+  fps: { target: 60, limit: 240 },
   input: { activePointers: 2 },
-  scene: [BootScene, PreloadScene, LobbyScene, BattleScene, PauseScene, ResultScene],
+  scene: [BootScene, PreloadScene, LobbyScene, BattleScene, PauseScene, ResultScene, SettingsScene],
 });
+
+// Browsers only allow sound after a touch; every touch makes sure audio is running.
+document.addEventListener('pointerdown', () => audio.unlock(), { passive: true });
+game.events.on(Phaser.Core.Events.HIDDEN, () => audio.suspend());
+game.events.on(Phaser.Core.Events.VISIBLE, () => audio.resume());
 
 if (flags.debug) {
   // Loaded only with ?debug=1 so normal players never download or run the profiler.

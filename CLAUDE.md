@@ -46,18 +46,21 @@
 src/
   main.ts              게임 설정, 장면 등록, ?debug=1이면 성능 측정기 로드
   config.ts            설계 해상도, 장면/텍스처 키, 색, 폰트
-  core/                장면과 무관한 엔진 도구 (FixedTimestep, Pool)
+  core/                장면과 무관한 엔진 도구 (FixedTimestep, Pool, frameRate: 로비/결과/일시정지 30fps)
   sim/                 전투 규칙 (Phaser 없음). 게임과 노드 시뮬레이터가 같은 코드를 씀
   data/                units/zombies/levels/economy JSON. 수치는 여기서만 바꾼다
-  art/                 그림을 코드로 그려 아틀라스 한 장 + 숫자 비트맵 폰트로 만듦
+  art/                 그림을 코드로 그려 아틀라스 한 장 + 숫자 비트맵 폰트로 만듦 (로비 배경·로고는 lobbyArt.ts)
+  audio/               효과음과 음악을 Web Audio로 합성 (파일 없음). 동시 8개, 같은 소리 최소 간격
   battle/              전투 화면 조각 (도로, 무리, 좀비 떼, 게이트, 바리케이드, 보스, 효과, HUD)
   game/                저장(버전, 백업, 마이그레이션)과 보상/진행
   platform/            브라우저/기기 대응 (URL 플래그, 저장소, 진동, 확대·스크롤 방지, 노치 여백)
   debug/               성능 측정기와 오버레이 (?debug=1 전용)
-  ui/                  공용 UI 위젯 (Button, IconButton)
-  scenes/              Boot → Preload → Lobby → Battle (+ Pause, Result 오버레이)
-public/                manifest.webmanifest, 아이콘 (그대로 복사됨)
+  ui/                  공용 UI 위젯 (Button, IconButton, Toggle)
+  scenes/              Boot → Preload → Lobby → Battle (+ Pause, Result, Settings 오버레이)
+public/                manifest.webmanifest, 아이콘, licenses.txt (그대로 복사됨)
+assets/                안드로이드 아이콘/스플래시 원본 (9단계 Capacitor용, 웹 빌드에는 안 들어감)
 scripts/smoke.mjs      헤드리스 휴대폰 검사
+scripts/make-icons.mjs 앱 아이콘과 스플래시를 캔버스로 그려 PNG 저장
 scripts/gen-levels.ts  스테이지 20개 생성 + 시뮬레이터로 난이도 맞춤 (levelCurve.ts의 목표 곡선)
 scripts/balance.ts     스테이지별 승률/남은 병력 표 → docs/balance.md
 .github/workflows/     ci.yml (PR 검사), deploy.yml (Pages 배포)
@@ -73,6 +76,7 @@ scripts/balance.ts     스테이지별 승률/남은 병력 표 → docs/balance
 - 버튼은 손을 뗄 때 실행한다(`ui/Button.ts`). 터치 영역은 최소 80×80 게임 단위.
 - URL 플래그: `?debug=1` 성능 오버레이와 모든 스테이지 선택, `?stress=1` 병력 5,000 스트레스 스테이지, `?bench=N` 전투 장면에 움직이는 스프라이트 N개.
 - 화면 문구는 한국어. 7단계에서 ko/en 파일로 분리한다.
+- 외부 그림·소리·글꼴을 넣으면 `CREDITS.md`에 출처와 라이선스를 적는다. 상업적 이용이 안 되는 자료는 넣지 않는다.
 - 의존성 버전은 고정(`^` 없이)하고, 새 라이브러리는 용량과 성능 영향을 확인한 뒤 추가한다.
 
 ## 명령어
@@ -84,4 +88,5 @@ npm run build        # 타입 검사 + 빌드 → dist/
 npm run smoke        # 빌드 결과를 휴대폰 크기 헤드리스 브라우저로 검사
 npm run gen-levels   # 스테이지 다시 생성 (약 10분)
 npm run balance      # 밸런스 표 docs/balance.md
+npm run icons        # 앱 아이콘/스플래시 다시 그리기
 ```

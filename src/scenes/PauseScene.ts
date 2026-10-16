@@ -11,6 +11,7 @@ export class PauseScene extends BaseScene {
   private resumeButton!: Button;
   private retryButton!: Button;
   private lobbyButton!: Button;
+  private settingsButton!: Button;
 
   constructor() {
     super(SceneKeys.Pause);
@@ -49,15 +50,28 @@ export class PauseScene extends BaseScene {
       },
       { color: Colors.neutral },
     );
+    this.settingsButton = new Button(
+      this,
+      0,
+      0,
+      '설정',
+      () => {
+        this.scene.pause();
+        this.scene.launch(SceneKeys.Settings, { from: SceneKeys.Pause });
+      },
+      { color: Colors.neutral },
+    );
     this.bindLayout();
   }
 
   protected layout(width: number, height: number): void {
     const cx = width / 2;
     this.dim.setDisplaySize(width, height);
-    this.label.setPosition(cx, height * 0.38);
-    this.resumeButton.setPosition(cx, height * 0.52);
-    this.retryButton.setPosition(cx, height * 0.52 + 130);
-    this.lobbyButton.setPosition(cx, height * 0.52 + 260);
+    const top = height * 0.5 - 200;
+    this.label.setPosition(cx, top - 130);
+    this.resumeButton.setPosition(cx, top);
+    this.retryButton.setPosition(cx, top + 130);
+    this.settingsButton.setPosition(cx, top + 260);
+    this.lobbyButton.setPosition(cx, top + 390);
   }
 }

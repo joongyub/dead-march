@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ATLAS } from '../art/atlas';
+import { audio } from '../audio/Audio';
 import { BarricadeView } from '../battle/BarricadeView';
 import { BossView } from '../battle/BossView';
 import { CrowdView } from '../battle/CrowdView';
@@ -11,6 +12,7 @@ import { Hud } from '../battle/Hud';
 import { stressLevel } from '../battle/stressLevel';
 import { Track } from '../battle/Track';
 import { Colors, DESIGN_WIDTH, SceneKeys } from '../config';
+import { setFrameCap } from '../core/frameRate';
 import { FixedTimestep } from '../core/FixedTimestep';
 import { recordBattle } from '../game/progress';
 import { save } from '../game/save';
@@ -52,6 +54,8 @@ export class BattleScene extends BaseScene {
   private fx!: Effects;
   private hud!: Hud;
   private hint!: Phaser.GameObjects.Image;
+  /** White full-screen flash (boss kill). */
+  private flash!: Phaser.GameObjects.Image;
 
   private roadX = 0;
   private crowdY = 0;
@@ -87,6 +91,7 @@ export class BattleScene extends BaseScene {
   }
 
   create(data: BattleData): void {
+    setFrameCap(this.game, 0);
     this.stress = data.stress ?? flags.stress;
     this.level = this.stress ? stressLevel() : getLevel(data.stage ?? save.data.unlocked);
     this.sim = new BattleSim(this.level, RULES, data.modifiers);
@@ -115,7 +120,9 @@ export class BattleScene extends BaseScene {
     const stageLabel = this.stress ? '스트레스 테스트' : `${this.level.id}. ${this.level.name}`;
     this.hud = new Hud(this, stageLabel, `보스 · ${this.sim.boss.kind.name}`, () => this.openPause());
     this.hint = this.add.image(0, 0, ATLAS, 'i_hand').setDepth(Depth.Hud).setAlpha(0.9).setVisible(this.level.id <= 1 && !this.stress);
+    this.flash = this.add.image(0, 0, ATLAS, 'px').setOrigin(0).setDepth(Depth.Hud - 1).setAlpha(0);
     this.createBench(flags.bench);
+    audio.playMusic('battle');
 
     this.input.on(Phaser.Input.Events.POINTER_DOWN, this.onPointerDown, this);
     this.input.on(Phaser.Input.Events.POINTER_MOVE, this.onPointerMove, this);
@@ -126,7 +133,9 @@ export class BattleScene extends BaseScene {
     // Losing the screen mid-battle (home button, call, notification shade) always lands on the pause menu.
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.openPause, this);
     this.game.events.on(Phaser.Core.Events.BLUR, this.openPause, this);
+    this.events.on(Phaser.Scenes.Events.RESUME, this.onResume, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.events.off(Phaser.Scenes.Events.RESUME, this.onResume, this);
       this.game.events.off(Phaser.Core.Events.HIDDEN, this.openPause, this);
       this.game.events.off(Phaser.Core.Events.BLUR, this.openPause, this);
       this.input.off(Phaser.Input.Events.POINTER_DOWN, this.onPointerDown, this);
@@ -193,6 +202,12 @@ export class BattleScene extends BaseScene {
     this.dragging = false;
     this.scene.pause();
     this.scene.launch(SceneKeys.Pause);
+    // The pause menu barely moves; half the frame rate saves battery.
+    setFrameCap(this.game, 30);
+  }
+
+  private onResume(): void {
+    setFrameCap(this.game, 0);
   }
 
   protected layout(width: number, height: number): void {
@@ -201,6 +216,7 @@ export class BattleScene extends BaseScene {
     this.viewAhead = this.crowdY + 60;
     this.viewBottom = height;
     this.track.layout(width, height, this.roadX);
+    this.flash.setDisplaySize(width, height);
     this.hud.layout(width, height, this.insets);
   }
 
@@ -253,11 +269,13 @@ export class BattleScene extends BaseScene {
             fx.number(cx, numberY, `${delta > 0 ? '+' : ''}${delta}`, delta > 0 ? 0x7fe3ff : 0xff6b6b, 54);
           }
           fx.ring(cx, cy, 320, delta >= 0 ? 0x6fc8ff : 0xff5050, 0.3);
+          audio.play(delta >= 0 ? 'gateGood' : 'gateBad');
           this.powerSeen = sim.army.power;
           vibrate(delta >= 0 ? 15 : 40);
           break;
         }
         case 'merge': {
+          audio.play('merge', 1, e.tier * 200);
           fx.ring(cx, cy - 20, 300, 0xfff1a8, 0.3);
           fx.glow(cx, cy - 20, 150, 0xfff1a8, 0.2);
           const now = this.time.now;
@@ -272,6 +290,7 @@ export class BattleScene extends BaseScene {
           break;
         }
         case 'clash':
+          audio.play('clash');
           this.hitStop = 45;
           this.shake(110, 0.005);
           vibrate(25);
@@ -280,21 +299,28 @@ export class BattleScene extends BaseScene {
           if (e.byMelee) this.shake(80, 0.003);
           break;
         case 'barricadeSmashed':
+          audio.play('smash');
           this.hitStop = 50;
           this.shake(180, 0.01);
           fx.popup('w_smash', cx, wordY, 0.8, 0xffd27a);
           vibrate(50);
           break;
         case 'barricadeBroken':
+          audio.play('smash', 0.6);
           this.shake(90, 0.004);
           break;
         case 'bossStart':
+          audio.play('bossRoar');
           fx.popup('w_boss', this.scale.width / 2, this.scale.height * 0.36, 1.4, 0xff7070);
           this.hud.showBoss();
           this.shake(220, 0.006);
           vibrate(60);
           break;
         case 'won':
+          audio.play('explode');
+          audio.play('win');
+          audio.stopMusic();
+          this.flash.setAlpha(0.8);
           this.slowMo = 900;
           this.shake(400, 0.012);
           this.endTimer = 1500;
@@ -302,6 +328,8 @@ export class BattleScene extends BaseScene {
           vibrate(120);
           break;
         case 'lost':
+          audio.play('lose');
+          audio.stopMusic();
           this.crowd.wipe(fx, this.roadX, sim.distance);
           this.shake(300, 0.01);
           this.endTimer = 1100;
@@ -332,6 +360,7 @@ export class BattleScene extends BaseScene {
     this.barricades.update(dt, sim.barricades, distance, roadX, crowdY, this.viewAhead, this.viewBottom, this.fx);
     this.boss.update(dt, distance, roadX, ROAD_CENTER, crowdY, this.fx);
     if (this.boss.landed) {
+      audio.play('clash', 0.8);
       this.crowd.hitFront();
       this.fx.burst(cx, crowdY - sim.crowdRadius * 0.6, 6, 0xd02030, 320, 'chunk', 0.4);
       this.shake(120, 0.007);
@@ -341,6 +370,7 @@ export class BattleScene extends BaseScene {
     this.updateLosses(dt, cx);
     this.fx.update(dt, roadX, crowdY, distance, this.viewBottom);
     this.hud.update(dt, sim, cx, crowdY);
+    if (this.flash.alpha > 0) this.flash.setAlpha(Math.max(0, this.flash.alpha - dt * 2.5));
     if (this.hint.visible) {
       this.hintTime += dt;
       this.hint.setPosition(cx + Math.sin(this.hintTime * 3) * 130, crowdY + 120);
@@ -377,6 +407,9 @@ export class BattleScene extends BaseScene {
       const sx = this.crowd.shooterX(shooter);
       const sy = this.crowd.shooterY(shooter);
       this.fx.tracer(sx, sy, this.point.x, this.point.y, TRACER_TINTS[tier]);
+      audio.play(tier === 3 ? 'cannon' : tier === 2 ? 'shotHeavy' : 'shot');
+      if (sim.targetKind === 'horde' && Math.random() < 0.35) this.hordes.flashRandom(sim.targetHorde!);
+      else if (sim.targetKind === 'boss' && Math.random() < 0.15) audio.play('bossHit');
       if (tier >= 2 || Math.random() < 0.3) this.fx.glow(sx, sy - 8, 34 + tier * 14, 0xffe08a, 0.06);
       if (tier === 3) this.fx.glow(this.point.x, this.point.y, 120, 0xffa040, 0.16);
       else if (Math.random() < 0.25) this.fx.burst(this.point.x, this.point.y, 1, 0xfff0b0, 160, 'spark', 0.2);

@@ -1,25 +1,83 @@
 import Phaser from 'phaser';
-import { Colors, FONT_FAMILY, SceneKeys, TextureKeys } from '../config';
+import { ATLAS } from '../art/atlas';
+import { BarricadeView } from '../battle/BarricadeView';
+import { BossView } from '../battle/BossView';
+import { CrowdView } from '../battle/CrowdView';
+import { Depth } from '../battle/depth';
+import { Effects } from '../battle/Effects';
+import { GateView } from '../battle/GateView';
+import { HordeView } from '../battle/HordeView';
+import { Hud } from '../battle/Hud';
+import { stressLevel } from '../battle/stressLevel';
+import { Track } from '../battle/Track';
+import { Colors, DESIGN_WIDTH, SceneKeys } from '../config';
 import { FixedTimestep } from '../core/FixedTimestep';
+import { recordBattle } from '../game/progress';
+import { save } from '../game/save';
 import { flags } from '../platform/flags';
-import { Button } from '../ui/Button';
+import { vibrate } from '../platform/haptics';
+import { BattleSim, type BattleModifiers } from '../sim/BattleSim';
+import { getLevel, RULES } from '../sim/rules';
+import { ROAD_CENTER, ROAD_LEFT, ROAD_RIGHT, type LevelData } from '../sim/types';
 import { BaseScene } from './BaseScene';
 
-const SCROLL_SPEED = 420; // game units per second
+export interface BattleData {
+  stage?: number;
+  stress?: boolean;
+  modifiers?: BattleModifiers;
+}
+
+/** Finger movement → crowd movement. A little above 1 so a thumb can cross the road without lifting. */
+const DRAG_GAIN = 1.25;
+const TRACER_TINTS = [0xfff2c0, 0xffe27a, 0xffb24a, 0xff8a3a];
+const TIER_RANGES = RULES.tiers.map((t) => t.range);
 const BENCH_TINTS = [0x5fb3ff, 0x6fd16f, 0xffd166, 0xc77dff];
 
 /**
- * Battle skeleton: a scrolling road driven by fixed-step logic, plus a pause flow.
- * The runner combat itself arrives in stage 2. ?bench=N adds N moving sprites to measure rendering cost.
+ * The runner battle. Rules live in BattleSim (stepped at a fixed 60 Hz); this scene only feeds it the
+ * finger position and draws its state, interpolated to the screen's refresh rate.
  */
 export class BattleScene extends BaseScene {
   private readonly timestep = new FixedTimestep();
-  private distance = 0;
+  private sim!: BattleSim;
+  private level!: LevelData;
+  private stress = false;
 
-  private ground!: Phaser.GameObjects.TileSprite;
-  private hint!: Phaser.GameObjects.Text;
-  private lobbyButton!: Button;
-  private pauseButton!: Button;
+  private track!: Track;
+  private crowd!: CrowdView;
+  private hordes!: HordeView;
+  private gates!: GateView;
+  private barricades!: BarricadeView;
+  private boss!: BossView;
+  private fx!: Effects;
+  private hud!: Hud;
+  private hint!: Phaser.GameObjects.Image;
+
+  private roadX = 0;
+  private crowdY = 0;
+  private viewAhead = 0;
+  private viewBottom = 0;
+
+  private prevDistance = 0;
+  private prevCrowdX = ROAD_CENTER;
+  private targetX = ROAD_CENTER;
+  private dragging = false;
+  private dragStartX = 0;
+  private dragStartTarget = ROAD_CENTER;
+  private keys: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
+
+  private hitStop = 0;
+  private slowMo = 0;
+  private endTimer = -1;
+  private ended = false;
+  private shotAcc = 0;
+  private powerSeen = 0;
+  private meleeLoss = 0;
+  private meleeTimer = 0;
+  private lastMergePopup = 0;
+  private hintTime = 0;
+  private readonly point = { x: 0, y: 0 };
+  private readonly stepFn = (dt: number) => this.step(dt);
 
   private benchSprites: Phaser.GameObjects.Image[] = [];
   private benchVel = new Float32Array(0);
@@ -28,32 +86,42 @@ export class BattleScene extends BaseScene {
     super(SceneKeys.Battle);
   }
 
-  create(): void {
-    this.distance = 0;
+  create(data: BattleData): void {
+    this.stress = data.stress ?? flags.stress;
+    this.level = this.stress ? stressLevel() : getLevel(data.stage ?? save.data.unlocked);
+    this.sim = new BattleSim(this.level, RULES, data.modifiers);
     this.timestep.reset();
+    this.prevDistance = 0;
+    this.prevCrowdX = this.sim.crowdX;
+    this.targetX = this.sim.crowdX;
+    this.dragging = false;
+    this.hitStop = 0;
+    this.slowMo = 0;
+    this.endTimer = -1;
+    this.ended = false;
+    this.shotAcc = 0;
+    this.powerSeen = this.sim.army.power;
+    this.meleeLoss = 0;
+    this.meleeTimer = 0;
+    this.hintTime = 0;
 
-    this.ground = this.add.tileSprite(0, 0, 1, 1, TextureKeys.Ground).setOrigin(0);
+    this.track = new Track(this, this.level.id);
+    this.fx = new Effects(this, Depth.Decals, Depth.Fx, Depth.FxAdd, Depth.Labels);
+    this.gates = new GateView(this);
+    this.barricades = new BarricadeView(this);
+    this.hordes = new HordeView(this);
+    this.boss = new BossView(this, this.sim.boss);
+    this.crowd = new CrowdView(this);
+    const stageLabel = this.stress ? '스트레스 테스트' : `${this.level.id}. ${this.level.name}`;
+    this.hud = new Hud(this, stageLabel, `보스 · ${this.sim.boss.kind.name}`, () => this.openPause());
+    this.hint = this.add.image(0, 0, ATLAS, 'i_hand').setDepth(Depth.Hud).setAlpha(0.9).setVisible(this.level.id <= 1 && !this.stress);
     this.createBench(flags.bench);
-    this.hint = this.add
-      .text(0, 0, '전투 장면 뼈대\n러너 전투는 2단계에서 들어옵니다', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '32px',
-        color: Colors.textDim,
-        align: 'center',
-      })
-      .setOrigin(0.5);
-    this.lobbyButton = new Button(this, 0, 0, '로비', () => this.scene.start(SceneKeys.Lobby), {
-      width: 160,
-      height: 80,
-      fontSize: 30,
-      color: Colors.neutral,
-    });
-    this.pauseButton = new Button(this, 0, 0, 'II', () => this.openPause(), {
-      width: 96,
-      height: 80,
-      fontSize: 32,
-      color: Colors.neutral,
-    });
+
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, this.onPointerDown, this);
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, this.onPointerMove, this);
+    this.input.on(Phaser.Input.Events.POINTER_UP, this.onPointerUp, this);
+    this.input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.onPointerUp, this);
+    this.keys = this.input.keyboard?.createCursorKeys() ?? null;
 
     // Losing the screen mid-battle (home button, call, notification shade) always lands on the pause menu.
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.openPause, this);
@@ -61,35 +129,292 @@ export class BattleScene extends BaseScene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.game.events.off(Phaser.Core.Events.HIDDEN, this.openPause, this);
       this.game.events.off(Phaser.Core.Events.BLUR, this.openPause, this);
+      this.input.off(Phaser.Input.Events.POINTER_DOWN, this.onPointerDown, this);
+      this.input.off(Phaser.Input.Events.POINTER_MOVE, this.onPointerMove, this);
+      this.input.off(Phaser.Input.Events.POINTER_UP, this.onPointerUp, this);
+      this.input.off(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.onPointerUp, this);
       this.benchSprites = [];
     });
 
+    this.cameras.main.setBackgroundColor(Colors.background);
     this.bindLayout();
+    // Expose for automated checks (?debug=1 only).
+    if (flags.debug) Object.assign(window, { __battle: this });
+  }
+
+  /** Stage being played (0 = stress test); the pause menu's retry uses it. */
+  get stageId(): number {
+    return this.level.id;
+  }
+
+  /** Read by the debug overlay and the smoke test. */
+  get debugInfo(): { units: number; zombies: number; fx: number; power: number; phase: string; distance: number } {
+    return {
+      units: this.crowd.count,
+      zombies: this.hordes.spriteCount,
+      fx: this.fx.activeCount,
+      power: this.sim.army.power,
+      phase: this.sim.phase,
+      distance: Math.round(this.sim.distance),
+    };
   }
 
   override update(_time: number, delta: number): void {
-    this.timestep.advance(delta, (dt) => this.step(dt));
-    this.ground.tilePositionY = -(this.distance % 128);
+    let simDelta = delta;
+    let fxScale = 1;
+    if (this.hitStop > 0) {
+      this.hitStop -= delta;
+      simDelta = 0;
+      fxScale = 0.25;
+    } else if (this.slowMo > 0) {
+      this.slowMo -= delta;
+      simDelta = delta * 0.3;
+      fxScale = 0.45;
+    }
+    if (this.keys) {
+      const dir = (this.keys.right.isDown ? 1 : 0) - (this.keys.left.isDown ? 1 : 0);
+      if (dir !== 0) this.targetX = Phaser.Math.Clamp(this.targetX + dir * 900 * (delta / 1000), ROAD_LEFT, ROAD_RIGHT);
+    }
+
+    const alpha = this.timestep.advance(simDelta, this.stepFn);
+    const distance = this.prevDistance + (this.sim.distance - this.prevDistance) * alpha;
+    const crowdX = this.prevCrowdX + (this.sim.crowdX - this.prevCrowdX) * alpha;
+    this.render((delta / 1000) * fxScale, distance, crowdX);
+
+    if (this.endTimer >= 0) {
+      this.endTimer -= delta;
+      if (this.endTimer < 0) this.finish();
+    }
+    if (this.benchSprites.length > 0) this.stepBench(delta / 1000);
   }
 
   openPause(): void {
-    if (!this.scene.isActive() || this.scene.isPaused()) return;
+    if (!this.scene.isActive() || this.scene.isPaused() || this.ended) return;
+    this.dragging = false;
     this.scene.pause();
     this.scene.launch(SceneKeys.Pause);
   }
 
   protected layout(width: number, height: number): void {
-    const top = this.insets.top + 56;
-    this.ground.setSize(width, height);
-    this.hint.setPosition(width / 2, height * 0.45);
-    this.lobbyButton.setPosition(24 + 80, top);
-    this.pauseButton.setPosition(width - 24 - 48, top);
+    this.roadX = (width - DESIGN_WIDTH) / 2;
+    this.crowdY = Math.round(height * 0.74);
+    this.viewAhead = this.crowdY + 60;
+    this.viewBottom = height;
+    this.track.layout(width, height, this.roadX);
+    this.hud.layout(width, height, this.insets);
   }
 
-  private step(dt: number): void {
-    this.distance += SCROLL_SPEED * dt;
-    if (this.benchSprites.length > 0) this.stepBench(dt);
+  // ---------- input ----------
+
+  private onPointerDown(p: Phaser.Input.Pointer): void {
+    this.dragging = true;
+    this.dragStartX = p.x;
+    this.dragStartTarget = this.targetX;
   }
+
+  private onPointerMove(p: Phaser.Input.Pointer): void {
+    if (!this.dragging || !p.isDown) return;
+    this.targetX = Phaser.Math.Clamp(this.dragStartTarget + (p.x - this.dragStartX) * DRAG_GAIN, ROAD_LEFT, ROAD_RIGHT);
+    if (this.hint.visible && Math.abs(p.x - this.dragStartX) > 40) this.hint.setVisible(false);
+  }
+
+  private onPointerUp(): void {
+    this.dragging = false;
+  }
+
+  // ---------- simulation ----------
+
+  private step(dt: number): void {
+    const sim = this.sim;
+    this.prevDistance = sim.distance;
+    this.prevCrowdX = sim.crowdX;
+    sim.setTargetX(this.targetX);
+    sim.step(dt);
+    if (sim.events.length > 0) this.handleEvents();
+  }
+
+  private handleEvents(): void {
+    const sim = this.sim;
+    const fx = this.fx;
+    const cx = this.roadX + sim.crowdX;
+    const cy = this.crowdY;
+    // Above the army size label, which sits just above the crowd.
+    const numberY = cy - sim.crowdRadius - 150;
+    const wordY = cy - sim.crowdRadius - 240;
+    for (const e of sim.events) {
+      switch (e.type) {
+        case 'gate': {
+          const delta = sim.army.power - e.powerBefore;
+          const op = e.side === 0 ? e.gate.left : e.gate.right;
+          if (op.kind === 'merge' || op.kind === 'split') {
+            fx.popup(op.kind === 'merge' ? 'w_merge' : 'w_split', cx, wordY, 0.8, 0xffd27a);
+          }
+          if (delta !== 0) {
+            fx.number(cx, numberY, `${delta > 0 ? '+' : ''}${delta}`, delta > 0 ? 0x7fe3ff : 0xff6b6b, 54);
+          }
+          fx.ring(cx, cy, 320, delta >= 0 ? 0x6fc8ff : 0xff5050, 0.3);
+          this.powerSeen = sim.army.power;
+          vibrate(delta >= 0 ? 15 : 40);
+          break;
+        }
+        case 'merge': {
+          fx.ring(cx, cy - 20, 300, 0xfff1a8, 0.3);
+          fx.glow(cx, cy - 20, 150, 0xfff1a8, 0.2);
+          const now = this.time.now;
+          if (now - this.lastMergePopup > 700) {
+            this.lastMergePopup = now;
+            fx.popup('w_merge', cx, wordY, 0.75, e.tier === 3 ? 0xffd27a : 0xffffff);
+          }
+          if (e.tier === 3) {
+            this.shake(140, 0.006);
+            vibrate(30);
+          }
+          break;
+        }
+        case 'clash':
+          this.hitStop = 45;
+          this.shake(110, 0.005);
+          vibrate(25);
+          break;
+        case 'hordeCleared':
+          if (e.byMelee) this.shake(80, 0.003);
+          break;
+        case 'barricadeSmashed':
+          this.hitStop = 50;
+          this.shake(180, 0.01);
+          fx.popup('w_smash', cx, wordY, 0.8, 0xffd27a);
+          vibrate(50);
+          break;
+        case 'barricadeBroken':
+          this.shake(90, 0.004);
+          break;
+        case 'bossStart':
+          fx.popup('w_boss', this.scale.width / 2, this.scale.height * 0.36, 1.4, 0xff7070);
+          this.hud.showBoss();
+          this.shake(220, 0.006);
+          vibrate(60);
+          break;
+        case 'won':
+          this.slowMo = 900;
+          this.shake(400, 0.012);
+          this.endTimer = 1500;
+          this.ended = true;
+          vibrate(120);
+          break;
+        case 'lost':
+          this.crowd.wipe(fx, this.roadX, sim.distance);
+          this.shake(300, 0.01);
+          this.endTimer = 1100;
+          this.ended = true;
+          vibrate(200);
+          break;
+      }
+    }
+    sim.events.length = 0;
+  }
+
+  private shake(ms: number, intensity: number): void {
+    if (save.data.settings.shake) this.cameras.main.shake(ms, intensity);
+  }
+
+  // ---------- drawing ----------
+
+  private render(dt: number, distance: number, crowdX: number): void {
+    const sim = this.sim;
+    const roadX = this.roadX;
+    const crowdY = this.crowdY;
+    const cx = roadX + crowdX;
+    this.track.update(distance, roadX, crowdY);
+    this.crowd.sync(sim.army.counts, sim.army.power, sim.crowdRadius, this.fx, roadX, distance);
+    this.crowd.update(dt, cx, crowdY, sim.phase === 'run' && sim.speed > 60);
+    this.hordes.update(dt, sim.hordes, distance, roadX, crowdY, this.viewAhead, this.viewBottom, this.fx);
+    this.gates.update(dt, sim.gates, distance, roadX, crowdY, this.viewAhead, this.viewBottom);
+    this.barricades.update(dt, sim.barricades, distance, roadX, crowdY, this.viewAhead, this.viewBottom, this.fx);
+    this.boss.update(dt, distance, roadX, ROAD_CENTER, crowdY, this.fx);
+    if (this.boss.landed) {
+      this.crowd.hitFront();
+      this.fx.burst(cx, crowdY - sim.crowdRadius * 0.6, 6, 0xd02030, 320, 'chunk', 0.4);
+      this.shake(120, 0.007);
+      vibrate(35);
+    }
+    this.updateShooting(dt, distance);
+    this.updateLosses(dt, cx);
+    this.fx.update(dt, roadX, crowdY, distance, this.viewBottom);
+    this.hud.update(dt, sim, cx, crowdY);
+    if (this.hint.visible) {
+      this.hintTime += dt;
+      this.hint.setPosition(cx + Math.sin(this.hintTime * 3) * 130, crowdY + 120);
+    }
+  }
+
+  /** Tracers from random front units to the current target; the rate grows with the crowd but is capped. */
+  private updateShooting(dt: number, distance: number): void {
+    const sim = this.sim;
+    if (sim.firePower <= 0 || sim.finished) return;
+    const rate = Math.min(34, 5 + this.crowd.count * 0.45);
+    this.shotAcc += dt * rate;
+    while (this.shotAcc >= 1) {
+      this.shotAcc -= 1;
+      let tz: number;
+      if (sim.targetKind === 'horde' && sim.targetHorde) {
+        if (!this.hordes.targetPoint(sim.targetHorde, this.point)) continue;
+        tz = sim.targetHorde.z;
+      } else if (sim.targetKind === 'barricade' && sim.targetBarricade) {
+        const b = sim.targetBarricade;
+        this.point.x = this.roadX + b.x0 + Math.random() * (b.x1 - b.x0);
+        this.point.y = this.crowdY - (b.z - distance);
+        tz = b.z;
+      } else if (sim.targetKind === 'boss' && this.boss.visible) {
+        this.point.x = this.boss.targetX();
+        this.point.y = this.boss.targetY();
+        tz = sim.boss.z;
+      } else {
+        continue;
+      }
+      const shooter = this.crowd.pickShooter(tz - distance, TIER_RANGES);
+      if (shooter < 0) continue;
+      const tier = this.crowd.shooterTier(shooter);
+      const sx = this.crowd.shooterX(shooter);
+      const sy = this.crowd.shooterY(shooter);
+      this.fx.tracer(sx, sy, this.point.x, this.point.y, TRACER_TINTS[tier]);
+      if (tier >= 2 || Math.random() < 0.3) this.fx.glow(sx, sy - 8, 34 + tier * 14, 0xffe08a, 0.06);
+      if (tier === 3) this.fx.glow(this.point.x, this.point.y, 120, 0xffa040, 0.16);
+      else if (Math.random() < 0.25) this.fx.burst(this.point.x, this.point.y, 1, 0xfff0b0, 160, 'spark', 0.2);
+    }
+  }
+
+  /** Army lost to melee, barricades and the boss shows up as red numbers every quarter second. */
+  private updateLosses(dt: number, cx: number): void {
+    const power = this.sim.army.power;
+    if (power < this.powerSeen) {
+      this.meleeLoss += this.powerSeen - power;
+      this.crowd.hitFront();
+    }
+    this.powerSeen = power;
+    this.meleeTimer -= dt;
+    if (this.meleeTimer <= 0 && this.meleeLoss > 0) {
+      this.meleeTimer = 0.25;
+      // Beside the crowd, so it never covers the army size label above it.
+      const side = Math.random() < 0.5 ? -1 : 1;
+      this.fx.number(cx + side * (this.sim.crowdRadius + 50), this.crowdY - 20, `-${this.meleeLoss}`, 0xff5a5a, 38);
+      this.meleeLoss = 0;
+    }
+  }
+
+  private finish(): void {
+    const outcome = this.stress ? null : recordBattle(this.sim);
+    this.scene.pause();
+    this.scene.launch(SceneKeys.Result, {
+      stage: this.level.id,
+      won: this.sim.phase === 'won',
+      power: this.sim.army.power,
+      kills: this.sim.stats.zombiesKilled,
+      time: this.sim.stats.time,
+      outcome,
+    });
+  }
+
+  // ---------- ?bench=N: raw sprite rendering cost ----------
 
   private createBench(count: number): void {
     if (count <= 0) return;
@@ -97,8 +422,9 @@ export class BattleScene extends BaseScene {
     this.benchVel = new Float32Array(count * 2);
     for (let i = 0; i < count; i++) {
       const sprite = this.add
-        .image(Math.random() * width, Math.random() * height, TextureKeys.Unit)
-        .setTint(BENCH_TINTS[i % BENCH_TINTS.length]);
+        .image(Math.random() * width, Math.random() * height, ATLAS, 'u0')
+        .setTint(BENCH_TINTS[i % BENCH_TINTS.length])
+        .setDepth(Depth.Fx);
       this.benchSprites.push(sprite);
       const angle = Math.random() * Math.PI * 2;
       const speed = 80 + Math.random() * 160;

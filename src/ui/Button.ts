@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { ATLAS } from '../art/atlas';
 import { Colors, FONT_FAMILY, TextureKeys } from '../config';
 
 export interface ButtonOptions {
@@ -22,7 +23,9 @@ export class Button extends Phaser.GameObjects.Container {
     { width = 360, height = 104, color = Colors.primary, fontSize = 40 }: ButtonOptions = {},
   ) {
     super(scene, x, y);
-    this.bg = scene.add.nineslice(0, 0, TextureKeys.Panel, undefined, width, height, 20, 20, 20, 20).setTint(color);
+    // The battle atlas has the same rounded panel; using it keeps buttons in the atlas draw batch.
+    const [key, frame] = scene.textures.exists(ATLAS) ? [ATLAS, 'panel'] : [TextureKeys.Panel, undefined];
+    this.bg = scene.add.nineslice(0, 0, key, frame, width, height, 20, 20, 20, 20).setTint(color);
     const text = scene.add
       .text(0, 0, label, { fontFamily: FONT_FAMILY, fontSize: `${fontSize}px`, color: Colors.text, fontStyle: 'bold' })
       .setOrigin(0.5);

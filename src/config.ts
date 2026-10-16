@@ -15,6 +15,7 @@ export const SceneKeys = {
   Lobby: 'Lobby',
   Battle: 'Battle',
   Pause: 'Pause',
+  Result: 'Result',
 } as const;
 
 export const TextureKeys = {
@@ -35,6 +36,11 @@ export const Colors = {
   text: '#e9efe4',
   textDim: '#93a08a',
   accent: '#f2c14e',
+  good: 0x2e8bff,
+  bad: 0xff3b3b,
+  special: 0xffa726,
+  zombieCount: 0xff6b6b,
+  progress: 0x6fdc8c,
 } as const;
 
 export const FONT_FAMILY =

@@ -1,0 +1,12 @@
+{
+  "battle": {
+    "foodBase": 12,
+    "foodPerStage": 4,
+    "foodPerPowerLeft": 0.05,
+    "foodMaxFromPower": 120,
+    "fuelPerStage": 0.25,
+    "fuelBossStage": 8,
+    "replayShare": 0.6,
+    "lossShare": 0.3
+  }
+}

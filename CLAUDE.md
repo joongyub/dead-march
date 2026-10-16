@@ -47,16 +47,23 @@ src/
   main.ts              게임 설정, 장면 등록, ?debug=1이면 성능 측정기 로드
   config.ts            설계 해상도, 장면/텍스처 키, 색, 폰트
   core/                장면과 무관한 엔진 도구 (FixedTimestep, Pool)
-  platform/            브라우저/기기 대응 (URL 플래그, 확대·스크롤 방지, 노치 여백)
+  sim/                 전투 규칙 (Phaser 없음). 게임과 노드 시뮬레이터가 같은 코드를 씀
+  data/                units/zombies/levels/economy JSON. 수치는 여기서만 바꾼다
+  art/                 그림을 코드로 그려 아틀라스 한 장 + 숫자 비트맵 폰트로 만듦
+  battle/              전투 화면 조각 (도로, 무리, 좀비 떼, 게이트, 바리케이드, 보스, 효과, HUD)
+  game/                저장(버전, 백업, 마이그레이션)과 보상/진행
+  platform/            브라우저/기기 대응 (URL 플래그, 저장소, 진동, 확대·스크롤 방지, 노치 여백)
   debug/               성능 측정기와 오버레이 (?debug=1 전용)
-  ui/                  공용 UI 위젯 (Button)
-  scenes/              Boot → Preload → Lobby → Battle (+ Pause 오버레이)
+  ui/                  공용 UI 위젯 (Button, IconButton)
+  scenes/              Boot → Preload → Lobby → Battle (+ Pause, Result 오버레이)
 public/                manifest.webmanifest, 아이콘 (그대로 복사됨)
 scripts/smoke.mjs      헤드리스 휴대폰 검사
+scripts/gen-levels.ts  스테이지 20개 생성 + 시뮬레이터로 난이도 맞춤 (levelCurve.ts의 목표 곡선)
+scripts/balance.ts     스테이지별 승률/남은 병력 표 → docs/balance.md
 .github/workflows/     ci.yml (PR 검사), deploy.yml (Pages 배포)
 ```
 
-데이터(스테이지, 밸런스)는 4단계부터 `src/data/*.json`에 둔다. 수치는 코드에 박지 않는다.
+전투 규칙(`src/sim/`)은 결정적이고 난수를 쓰지 않는다. 규칙이나 `units.json`/`zombies.json`을 바꾸면 `npm run gen-levels`로 스테이지를 다시 맞추고 `npm run balance`로 표를 갱신한다.
 
 ## 코딩 규칙
 
@@ -64,7 +71,7 @@ scripts/smoke.mjs      헤드리스 휴대폰 검사
 - 장면은 `BaseScene`을 상속하고 위치 계산은 `layout()`에만 둔다. 노치 여백은 `this.insets`.
 - 장면이 `game.events`나 `scale`에 등록한 리스너는 `SHUTDOWN`에서 해제한다.
 - 버튼은 손을 뗄 때 실행한다(`ui/Button.ts`). 터치 영역은 최소 80×80 게임 단위.
-- URL 플래그: `?debug=1` 성능 오버레이, `?bench=N` 전투 장면에 움직이는 스프라이트 N개.
+- URL 플래그: `?debug=1` 성능 오버레이와 모든 스테이지 선택, `?stress=1` 병력 5,000 스트레스 스테이지, `?bench=N` 전투 장면에 움직이는 스프라이트 N개.
 - 화면 문구는 한국어. 7단계에서 ko/en 파일로 분리한다.
 - 의존성 버전은 고정(`^` 없이)하고, 새 라이브러리는 용량과 성능 영향을 확인한 뒤 추가한다.
 
@@ -75,4 +82,6 @@ npm install          # 처음 한 번
 npm run dev          # 개발 서버 (같은 와이파이의 휴대폰에서도 접속 가능)
 npm run build        # 타입 검사 + 빌드 → dist/
 npm run smoke        # 빌드 결과를 휴대폰 크기 헤드리스 브라우저로 검사
+npm run gen-levels   # 스테이지 다시 생성 (약 10분)
+npm run balance      # 밸런스 표 docs/balance.md
 ```

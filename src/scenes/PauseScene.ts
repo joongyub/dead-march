@@ -2,12 +2,14 @@ import Phaser from 'phaser';
 import { Colors, FONT_FAMILY, SceneKeys, TextureKeys } from '../config';
 import { Button } from '../ui/Button';
 import { BaseScene } from './BaseScene';
+import type { BattleScene } from './BattleScene';
 
 /** Overlay launched on top of a paused battle (pause button, app sent to background, focus lost). */
 export class PauseScene extends BaseScene {
   private dim!: Phaser.GameObjects.Image;
   private label!: Phaser.GameObjects.Text;
   private resumeButton!: Button;
+  private retryButton!: Button;
   private lobbyButton!: Button;
 
   constructor() {
@@ -24,6 +26,18 @@ export class PauseScene extends BaseScene {
       this.scene.stop();
       this.scene.resume(SceneKeys.Battle);
     });
+    this.retryButton = new Button(
+      this,
+      0,
+      0,
+      '다시 하기',
+      () => {
+        this.scene.stop();
+        const battle = this.scene.get(SceneKeys.Battle) as BattleScene;
+        battle.scene.restart({ stage: battle.stageId });
+      },
+      { color: Colors.neutral },
+    );
     this.lobbyButton = new Button(
       this,
       0,
@@ -43,6 +57,7 @@ export class PauseScene extends BaseScene {
     this.dim.setDisplaySize(width, height);
     this.label.setPosition(cx, height * 0.38);
     this.resumeButton.setPosition(cx, height * 0.52);
-    this.lobbyButton.setPosition(cx, height * 0.52 + 140);
+    this.retryButton.setPosition(cx, height * 0.52 + 130);
+    this.lobbyButton.setPosition(cx, height * 0.52 + 260);
   }
 }

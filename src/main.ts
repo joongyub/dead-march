@@ -7,6 +7,7 @@ import { BootScene } from './scenes/BootScene';
 import { LobbyScene } from './scenes/LobbyScene';
 import { PauseScene } from './scenes/PauseScene';
 import { PreloadScene } from './scenes/PreloadScene';
+import { ResultScene } from './scenes/ResultScene';
 
 installMobileGuards();
 
@@ -37,7 +38,7 @@ const game = new Phaser.Game({
   },
   fps: { target: 60 },
   input: { activePointers: 2 },
-  scene: [BootScene, PreloadScene, LobbyScene, BattleScene, PauseScene],
+  scene: [BootScene, PreloadScene, LobbyScene, BattleScene, PauseScene, ResultScene],
 });
 
 if (flags.debug) {

@@ -105,7 +105,8 @@ function greedySide(sim: BattleSim, gate: SimGate): number {
   return tryOp(gate.left) >= tryOp(gate.right) ? 0 : 1;
 }
 
-function mulberry32(seed: number): () => number {
+/** Small seeded random generator, so every report is reproducible. */
+export function mulberry32(seed: number): () => number {
   return () => {
     seed |= 0;
     seed = (seed + 0x6d2b79f5) | 0;
@@ -116,9 +117,27 @@ function mulberry32(seed: number): () => number {
 }
 
 /**
- * Share of casual players that clear the stage: each picks the better gate except with `mistakeRate`
+ * Battles played by `samples` casual players: each picks the better gate except with `mistakeRate`
  * chance per gate, and dodges avoidable obstacles. Deterministic per level id.
  */
+export function casualRuns(
+  level: LevelData,
+  rules: BattleRules,
+  modifiers: BattleModifiers | undefined,
+  mistakeRate: number,
+  samples = 40,
+): RunResult[] {
+  const gateCount = level.events.filter((e) => e.type === 'gate').length;
+  const rand = mulberry32(level.id * 31337);
+  const runs: RunResult[] = [];
+  for (let i = 0; i < samples; i++) {
+    const mistakes = Array.from({ length: gateCount }, () => rand() < mistakeRate);
+    runs.push(runPlan(level, rules, { gates: 'greedy', mistakes, dodge: true }, modifiers));
+  }
+  return runs;
+}
+
+/** Share of casual players (see casualRuns) that clear the stage. */
 export function casualWinRate(
   level: LevelData,
   rules: BattleRules,
@@ -126,14 +145,8 @@ export function casualWinRate(
   mistakeRate: number,
   samples = 40,
 ): number {
-  const gateCount = level.events.filter((e) => e.type === 'gate').length;
-  const rand = mulberry32(level.id * 31337);
-  let wins = 0;
-  for (let i = 0; i < samples; i++) {
-    const mistakes = Array.from({ length: gateCount }, () => rand() < mistakeRate);
-    if (runPlan(level, rules, { gates: 'greedy', mistakes, dodge: true }, modifiers).won) wins++;
-  }
-  return wins / samples;
+  const runs = casualRuns(level, rules, modifiers, mistakeRate, samples);
+  return runs.filter((r) => r.won).length / runs.length;
 }
 
 export interface LevelReport {

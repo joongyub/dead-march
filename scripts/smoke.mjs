@@ -134,6 +134,37 @@ async function main() {
     results.scenesAtEnd = await activeScenes();
     await page.screenshot({ path: `${OUT}/4-result.png` });
 
+    // Shelter: open it with resources in hand, upgrade the wall through the upgrade window.
+    await page.evaluate(() => {
+      const { game, save } = window.__dm;
+      save.data.resources = { food: 5000, scrap: 5000, fuel: 200 };
+      save.data.idle.collectedAt = Date.now() - 3 * 3600 * 1000;
+      // Stop everything still running or paused underneath (battle, result) before opening the shelter.
+      for (const s of game.scene.scenes) if (s.scene.isActive() || s.scene.isPaused()) s.scene.stop();
+      game.scene.start('Shelter');
+    });
+    await page.waitForFunction(() => window.__dm.game.scene.isActive('Shelter'), null, { timeout: 10000 });
+    await sleep(1200);
+    await page.screenshot({ path: `${OUT}/7-shelter.png` });
+    results.wallBefore = await page.evaluate(() => window.__dm.save.data.buildings.wall ?? 1);
+    await page.evaluate(() => {
+      const shelter = window.__dm.game.scene.getScene('Shelter');
+      window.__wallPos = (({ x, y }) => ({ x, y: y - 40 }))(shelter.views.find((v) => v.id === 'wall').image);
+    });
+    const wallPos = await page.evaluate(() => window.__wallPos);
+    await tapGame(wallPos.x, wallPos.y);
+    await sleep(400);
+    await page.screenshot({ path: `${OUT}/8-upgrade.png` });
+    const upgradePos = await page.evaluate(() => {
+      const shelter = window.__dm.game.scene.getScene('Shelter');
+      const m = shelter.modal;
+      return { x: m.x + shelter.modalButton.x, y: m.y + shelter.modalButton.y };
+    });
+    await tapGame(upgradePos.x, upgradePos.y);
+    await sleep(400);
+    results.wallAfter = await page.evaluate(() => window.__dm.save.data.buildings.wall ?? 1);
+    await measure('shelter', 3000);
+
     // Heaviest battle: 5,000+ army against back-to-back hordes.
     await page.goto(`${base}?debug=1&stress=1`);
     await page.waitForFunction(() => window.__dm?.monitor, null, { timeout: 15000 });
@@ -157,7 +188,7 @@ async function main() {
     await new Promise((r) => server.httpServer.close(r));
   }
 
-  const measured = ['lobby', 'battle', 'stress', 'bench2000'].map((k) => results[k]?.summary).filter(Boolean);
+  const measured = ['lobby', 'battle', 'shelter', 'stress', 'bench2000'].map((k) => results[k]?.summary).filter(Boolean);
   const unitSprites = (results.stressSprites?.units ?? Infinity) + (results.stressSprites?.zombies ?? Infinity);
   results.checks = {
     'settings open and close over the lobby': results.settingsOpened === true && results.lobbyAfterSettings === true,
@@ -165,10 +196,11 @@ async function main() {
     'background -> battle paused': results.battlePausedAfterHidden === true,
     'resume button -> battle running': results.battleRunningAfterResume === true,
     'stage played to the end -> result screen': results.scenesAtEnd?.includes('Result') ?? false,
+    'shelter upgrade raises the wall': results.wallAfter === results.wallBefore + 1,
     'logic <= 4ms (stress, 5000+ army)': (results.stress?.summary.logicMsAvg ?? Infinity) <= 4,
     'logic <= 4ms (2000 sprites)': (results.bench2000?.summary.logicMsAvg ?? Infinity) <= 4,
     'unit sprites <= 200 (stress)': unitSprites <= 200,
-    'draw calls <= 20': measured.length === 4 && measured.every((m) => m.drawCallsAvg <= 20),
+    'draw calls <= 20': measured.length === 5 && measured.every((m) => m.drawCallsAvg <= 20),
     'no JS errors': results.errors.length === 0,
   };
 

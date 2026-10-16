@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { audio } from './audio/Audio';
+import { save } from './game/save';
 import { Colors, DESIGN_HEIGHT, DESIGN_WIDTH, MAX_DPR } from './config';
 import { flags } from './platform/flags';
 import { installMobileGuards } from './platform/mobile';
@@ -10,6 +11,7 @@ import { PauseScene } from './scenes/PauseScene';
 import { PreloadScene } from './scenes/PreloadScene';
 import { ResultScene } from './scenes/ResultScene';
 import { SettingsScene } from './scenes/SettingsScene';
+import { ShelterScene } from './scenes/ShelterScene';
 
 installMobileGuards();
 
@@ -41,12 +43,16 @@ const game = new Phaser.Game({
   // The limiter is on at a rate no screen reaches, so calm scenes can lower it (core/frameRate.ts).
   fps: { target: 60, limit: 240 },
   input: { activePointers: 2 },
-  scene: [BootScene, PreloadScene, LobbyScene, BattleScene, PauseScene, ResultScene, SettingsScene],
+  scene: [BootScene, PreloadScene, LobbyScene, ShelterScene, BattleScene, PauseScene, ResultScene, SettingsScene],
 });
 
 // Browsers only allow sound after a touch; every touch makes sure audio is running.
 document.addEventListener('pointerdown', () => audio.unlock(), { passive: true });
-game.events.on(Phaser.Core.Events.HIDDEN, () => audio.suspend());
+game.events.on(Phaser.Core.Events.HIDDEN, () => {
+  audio.suspend();
+  // The app may be killed in the background; write progress now.
+  void save.flush();
+});
 game.events.on(Phaser.Core.Events.VISIBLE, () => audio.resume());
 
 if (flags.debug) {
@@ -56,7 +62,7 @@ if (flags.debug) {
       const start = () => {
         const monitor = new PerfMonitor(game);
         new DebugOverlay(monitor);
-        Object.assign(window, { __dm: { game, monitor } });
+        Object.assign(window, { __dm: { game, monitor, save } });
       };
       if (game.isRunning) start();
       else game.events.once(Phaser.Core.Events.READY, start);

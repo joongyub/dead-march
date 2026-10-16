@@ -13,6 +13,7 @@ export interface ButtonOptions {
 /** Rounded button that fires on release (like native buttons), with a press-down scale. */
 export class Button extends Phaser.GameObjects.Container {
   private readonly bg: Phaser.GameObjects.NineSlice;
+  private readonly label: Phaser.GameObjects.Text;
   private pressed = false;
 
   constructor(
@@ -27,10 +28,10 @@ export class Button extends Phaser.GameObjects.Container {
     // The battle atlas has the same rounded panel; using it keeps buttons in the atlas draw batch.
     const [key, frame] = scene.textures.exists(ATLAS) ? [ATLAS, 'panel'] : [TextureKeys.Panel, undefined];
     this.bg = scene.add.nineslice(0, 0, key, frame, width, height, 20, 20, 20, 20).setTint(color);
-    const text = scene.add
+    this.label = scene.add
       .text(0, 0, label, { fontFamily: FONT_FAMILY, fontSize: `${fontSize}px`, color: Colors.text, fontStyle: 'bold' })
       .setOrigin(0.5);
-    this.add([this.bg, text]);
+    this.add([this.bg, this.label]);
     this.setSize(width, height);
 
     this.bg.setInteractive({ useHandCursor: true });
@@ -47,6 +48,11 @@ export class Button extends Phaser.GameObjects.Container {
       onClick();
     });
     scene.add.existing(this);
+  }
+
+  setLabel(text: string): this {
+    this.label.setText(text);
+    return this;
   }
 
   private release(): void {

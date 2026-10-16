@@ -11,6 +11,7 @@ import { getLevel, LEVELS } from '../sim/rules';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
 import { BaseScene } from './BaseScene';
+import { ShelterScene } from './ShelterScene';
 
 /** Survivors walking away down the road behind the menu. */
 const MARCHERS = 14;
@@ -31,6 +32,8 @@ export class LobbyScene extends BaseScene {
   private prevButton!: IconButton;
   private nextButton!: IconButton;
   private startButton!: Button;
+  private shelterButton!: Button;
+  private shelterBadge!: Phaser.GameObjects.Image;
   private settingsButton!: IconButton;
   private debugNote!: Phaser.GameObjects.Text;
   private version!: Phaser.GameObjects.Text;
@@ -95,10 +98,18 @@ export class LobbyScene extends BaseScene {
     this.prevButton = new IconButton(this, 0, 0, 'i_left', () => this.browse(-1), { size: 96 });
     this.nextButton = new IconButton(this, 0, 0, 'i_right', () => this.browse(1), { size: 96 });
     this.startButton = new Button(this, 0, 0, '출격', () => this.scene.start(SceneKeys.Battle, { stage: this.stage }), {
-      width: 420,
+      width: 400,
       height: 120,
       fontSize: 48,
     });
+    this.shelterButton = new Button(this, 0, 0, '피난처', () => this.scene.start(SceneKeys.Shelter), {
+      width: 240,
+      height: 120,
+      fontSize: 38,
+      color: 0x8a5a2a,
+    });
+    // Red dot when an upgrade is affordable or an hour of idle resources is waiting.
+    this.shelterBadge = this.add.image(0, 0, ATLAS, 'circle').setTint(0xff3b3b).setScale(0.45).setVisible(ShelterScene.hasNews());
     this.settingsButton = new IconButton(this, 0, 0, 'i_gear', () => this.openSettings(), { size: 88 });
     this.debugNote = this.add
       .text(0, 0, flags.debug ? '개발용: 모든 스테이지 선택 가능' : '', { fontFamily: FONT_FAMILY, fontSize: '22px', color: '#ff9f6b' })
@@ -215,7 +226,10 @@ export class LobbyScene extends BaseScene {
     this.prevButton.setPosition(cx - 280, cardY + 210);
     this.nextButton.setPosition(cx + 280, cardY + 210);
     this.debugNote.setPosition(cx, cardY + 210);
-    this.startButton.setPosition(cx, Math.min(height - this.insets.bottom - 170, cardY + 340));
+    const buttonsY = Math.min(height - this.insets.bottom - 170, cardY + 340);
+    this.shelterButton.setPosition(cx - 210, buttonsY);
+    this.startButton.setPosition(cx + 120, buttonsY);
+    this.shelterBadge.setPosition(cx - 210 + 108, buttonsY - 48);
     this.version.setPosition(cx, height - this.insets.bottom - 24);
   }
 }

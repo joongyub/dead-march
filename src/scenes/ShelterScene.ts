@@ -1,18 +1,5 @@
 import Phaser from 'phaser';
 import { ATLAS, formatCount, NUM_FONT } from '../art/atlas';
-import { refreshCanvasTexture } from '../art/canvasTexture';
-import {
-  BUILDING_SPOTS,
-  buildingOrigin,
-  buildingTier,
-  buildShelterBackground,
-  CAMPFIRE,
-  drawBuilding,
-  ensureBuildingTexture,
-  SHELTER_BG,
-  SHELTER_BG_H,
-  SHELTER_BUILDINGS,
-} from '../art/shelterArt';
 import { audio } from '../audio/Audio';
 import { Colors, DESIGN_HEIGHT, DESIGN_WIDTH, FONT_FAMILY, SceneKeys } from '../config';
 import { setFrameCap } from '../core/frameRate';
@@ -45,9 +32,25 @@ import { Coach } from '../ui/Coach';
 import { IconButton } from '../ui/IconButton';
 import { RESOURCE_ICON } from '../ui/resourceIcons';
 import { BaseScene } from './BaseScene';
+import type { BuildingRect, ShelterWorld } from '../world3d/ShelterWorld';
+import { shelterWorld } from '../world3d/registry';
 
-/** Draw order: buildings and people sort by their y (0…~1800); everything below sits above them. */
+/** Draw order above the 3D yard. */
 const D = { labels: 5000, bubble: 5100, hud: 5200, float: 5500, modalDim: 6000, modal: 6001, coach: 6100 } as const;
+
+/** Buildings have three looks: levels 1–6, 7–13 and 14 up. */
+function buildingTier(level: number): number {
+  return level >= 14 ? 2 : level >= 7 ? 1 : 0;
+}
+
+/** Without WebGL2 the buildings are plain labeled buttons at these spots of the 720×1280 frame. */
+const FLAT_SPOTS: Record<BuildingId, { x: number; y: number }> = {
+  wall: { x: 360, y: 330 },
+  armory: { x: 180, y: 590 },
+  garage: { x: 540, y: 590 },
+  farm: { x: 180, y: 990 },
+  radio: { x: 540, y: 990 },
+};
 
 /** One line describing a level's effect, for the upgrade window. */
 export function effectText(id: BuildingId, e: BuildingEffect): string {
@@ -67,7 +70,8 @@ export function effectText(id: BuildingId, e: BuildingEffect): string {
 
 interface BuildingView {
   id: BuildingId;
-  image: Phaser.GameObjects.Image;
+  /** Invisible tap area over the 3D building. */
+  hit: Phaser.GameObjects.Zone;
   label: Phaser.GameObjects.Text;
   arrow: Phaser.GameObjects.Image;
   tier: number;
@@ -78,20 +82,15 @@ interface CostSlot {
   text: Phaser.GameObjects.BitmapText;
 }
 
-const SITTERS = 6;
-const SPARKS = 10;
-
 /**
- * The shelter: spend battle resources on five buildings, collect what piled up while away.
- * Mostly still, so it runs at 30fps.
+ * The shelter: spend battle resources on five buildings, collect what piled up while away. The yard
+ * is 3D (world3d/ShelterWorld.ts); this scene puts the labels, tap areas, resources and the upgrade
+ * window over it. Mostly still, so it runs at 30fps.
  */
 export class ShelterScene extends BaseScene {
-  private bg!: Phaser.GameObjects.Image;
+  private sw: ShelterWorld | null = null;
+  private readonly rect: BuildingRect = { x: 0, y: 0, w: 0, h: 0, labelX: 0, labelY: 0 };
   private views: BuildingView[] = [];
-  private fireGlow!: Phaser.GameObjects.Image;
-  private sitters: Phaser.GameObjects.Image[] = [];
-  private sparks: Phaser.GameObjects.Image[] = [];
-  private sparkState = new Float32Array(SPARKS * 4);
   private resBg: Phaser.GameObjects.NineSlice[] = [];
   private resIcons: Phaser.GameObjects.Image[] = [];
   private resTexts: Phaser.GameObjects.BitmapText[] = [];
@@ -114,7 +113,6 @@ export class ShelterScene extends BaseScene {
   /** First-upgrade lesson: finger on a building, then on the upgrade button. */
   private coach!: Coach;
 
-  private originY = 0;
   private clock = 0;
   private refreshTimer = 0;
 
@@ -124,11 +122,7 @@ export class ShelterScene extends BaseScene {
 
   create(): void {
     setFrameCap(this.game, 30);
-    buildShelterBackground(this);
-    const tex = ensureBuildingTexture(this);
     this.views = [];
-    this.sitters = [];
-    this.sparks = [];
     this.resBg = [];
     this.resIcons = [];
     this.resTexts = [];
@@ -138,33 +132,26 @@ export class ShelterScene extends BaseScene {
 
     if (guardClock(save.data.idle, Date.now())) save.commit();
 
-    this.bg = this.add.image(0, 0, SHELTER_BG).setOrigin(0.5, 0.5);
-
-    // Campfire with survivors sitting around it.
-    this.fireGlow = this.add.image(0, 0, ATLAS, 'soft').setBlendMode(Phaser.BlendModes.ADD).setTint(0xff8a3a);
-    for (let i = 0; i < SITTERS; i++) {
-      this.sitters.push(this.add.image(0, 0, ATLAS, i === 2 ? 'u1' : 'u0').setScale(1.1));
-    }
-    for (let i = 0; i < SPARKS; i++) {
-      this.sparks.push(this.add.image(0, 0, ATLAS, 'spark').setBlendMode(Phaser.BlendModes.ADD).setTint(0xffb060));
+    this.sw = shelterWorld();
+    const tiers = {} as Record<BuildingId, number>;
+    for (const id of BUILDING_IDS) tiers[id] = buildingTier(levelOf(save.data.buildings, id));
+    if (this.sw) {
+      this.sw.world.attach(this);
+      this.sw.begin(tiers);
+      this.cameras.main.setBackgroundColor(this.sw.fogColor);
     }
 
     for (const id of BUILDING_IDS) {
-      const tier = buildingTier(levelOf(save.data.buildings, id));
-      drawBuilding(tex, id, tier);
-      const origin = buildingOrigin(id);
-      const image = this.add.image(0, 0, SHELTER_BUILDINGS, id).setOrigin(origin.x, origin.y);
-      image.setInteractive({ useHandCursor: true, pixelPerfect: false });
-      image.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.openModal(id));
+      const hit = this.add.zone(0, 0, 160, 160).setInteractive({ useHandCursor: true });
+      hit.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => this.openModal(id));
       const label = this.add
         .text(0, 0, '', { fontFamily: FONT_FAMILY, fontSize: '26px', color: Colors.text, fontStyle: 'bold' })
         .setOrigin(0.5)
         .setPadding(14, 6, 14, 6)
         .setBackgroundColor('rgba(10,12,16,0.72)');
       const arrow = this.add.image(0, 0, ATLAS, 'i_up').setTint(0x6fdc8c).setScale(0.9);
-      this.views.push({ id, image, label, arrow, tier });
+      this.views.push({ id, hit, label, arrow, tier: tiers[id] });
     }
-    refreshCanvasTexture(tex);
 
     // Idle pile: one bubble, tap to collect everything.
     const bubbleBg = this.add.nineslice(0, 0, ATLAS, 'pill', 300, 84, 32, 32, 0, 0).setTint(0x1d6b3a);
@@ -236,32 +223,9 @@ export class ShelterScene extends BaseScene {
   override update(_time: number, delta: number): void {
     const dt = Math.min(delta, 100) / 1000;
     this.clock += dt;
-    const fy = this.originY + CAMPFIRE.y;
-    const fx = viewWidth(this.scale) / 2 + CAMPFIRE.x - DESIGN_WIDTH / 2;
-    const flicker = 0.85 + Math.sin(this.clock * 13) * 0.08 + Math.sin(this.clock * 7.3) * 0.07;
-    this.fireGlow.setPosition(fx, fy - 10).setScale(2.4 * flicker, 1.8 * flicker).setAlpha(0.75 * flicker);
-    for (let i = 0; i < SITTERS; i++) {
-      const a = (i / SITTERS) * Math.PI * 2 + 0.3;
-      const s = this.sitters[i];
-      s.setPosition(fx + Math.cos(a) * 96, fy + Math.sin(a) * 52 + Math.sin(this.clock * 2 + i) * 1.5);
-      s.depth = s.y;
-    }
-    const st = this.sparkState;
-    for (let i = 0; i < SPARKS; i++) {
-      const o = i * 4;
-      st[o + 3] -= dt;
-      if (st[o + 3] <= 0) {
-        st[o] = fx + (Math.random() - 0.5) * 30;
-        st[o + 1] = fy - 10;
-        st[o + 2] = (Math.random() - 0.5) * 20;
-        st[o + 3] = 0.8 + Math.random() * 1.2;
-      }
-      st[o] += st[o + 2] * dt;
-      st[o + 1] -= 60 * dt;
-      this.sparks[i].setPosition(st[o], st[o + 1]).setAlpha(Math.min(1, st[o + 3])).setScale(0.4);
-    }
+    this.sw?.update(dt);
     for (const v of this.views) {
-      if (v.arrow.visible) v.arrow.y = v.label.y - 56 + Math.sin(this.clock * 4) * 6;
+      if (v.arrow.visible) v.arrow.setPosition(v.label.x + v.label.width / 2 + 24, v.label.y - 4 + Math.sin(this.clock * 4) * 6);
     }
     this.updateCoach(dt);
     // Idle pile and affordability change with time; refresh once a second.
@@ -292,8 +256,8 @@ export class ShelterScene extends BaseScene {
       const id = suggestedUpgrade(save.data);
       for (const v of this.views) {
         if (v.id !== id) continue;
-        x = v.image.x;
-        y = v.image.y - 70;
+        x = v.hit.x;
+        y = v.hit.y;
         message = t('tut.shelterTap');
       }
     }
@@ -432,21 +396,9 @@ export class ShelterScene extends BaseScene {
     audio.play('upgrade');
     vibrate(30);
     const view = this.views.find((v) => v.id === id)!;
-    const tier = buildingTier(levelOf(save.data.buildings, id));
-    if (tier !== view.tier) {
-      view.tier = tier;
-      const tex = ensureBuildingTexture(this);
-      drawBuilding(tex, id, tier);
-      refreshCanvasTexture(tex);
-    }
-    // Building pops, a ring flashes out from it.
-    this.tweens.add({ targets: view.image, scaleX: { from: 1.12, to: 1 }, scaleY: { from: 0.9, to: 1 }, duration: 380, ease: 'Back.Out' });
-    const ring = this.add
-      .image(view.image.x, view.image.y - 60, ATLAS, 'ring')
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setTint(0x8fe0a0)
-      .setDepth(D.float);
-    this.tweens.add({ targets: ring, scale: { from: 0.4, to: 2.6 }, alpha: { from: 0.9, to: 0 }, duration: 520, onComplete: () => ring.destroy() });
+    view.tier = buildingTier(levelOf(save.data.buildings, id));
+    // The building jumps (or rises in its new look), dust and a ring fly out.
+    this.sw?.upgrade(id, view.tier);
     this.refresh();
   }
 
@@ -464,24 +416,34 @@ export class ShelterScene extends BaseScene {
 
   protected layout(width: number, height: number): void {
     const cx = width / 2;
-    // The 720×1280 frame is centered; taller screens see more of the background above and below.
-    this.originY = (height - DESIGN_HEIGHT) / 2;
-    const ox = cx - DESIGN_WIDTH / 2;
-    const bgScale = Math.max(1, height / SHELTER_BG_H);
-    this.bg.setPosition(cx, this.originY + DESIGN_HEIGHT / 2).setScale(bgScale);
-
+    // Tap areas and labels follow the buildings on screen (the camera keeps the yard's width on any phone).
+    const sw = this.sw;
+    sw?.world.sync(360, 0);
+    const r = this.rect;
+    const originY = (height - DESIGN_HEIGHT) / 2;
     for (const v of this.views) {
-      const spot = BUILDING_SPOTS[v.id];
-      v.image.setPosition(ox + spot.x, this.originY + spot.y);
-      v.image.depth = v.image.y;
-      const labelY = this.originY + spot.y + (v.id === 'wall' ? 60 : 30);
-      v.label.setPosition(ox + spot.x, labelY).setDepth(D.labels);
-      v.arrow.setPosition(ox + spot.x + v.label.width / 2 + 20, labelY - 56).setDepth(D.labels);
+      if (sw) {
+        sw.rect(v.id, r);
+      } else {
+        const spot = FLAT_SPOTS[v.id];
+        r.x = cx - DESIGN_WIDTH / 2 + spot.x;
+        r.y = originY + spot.y - 80;
+        r.w = v.id === 'wall' ? 640 : 220;
+        r.h = 160;
+        r.labelX = r.x;
+        r.labelY = r.y + 100;
+      }
+      v.hit.setPosition(r.x, r.y).setSize(r.w, r.h);
+      v.label.setPosition(r.labelX, r.labelY).setDepth(D.labels);
+      v.arrow.setDepth(D.labels);
     }
-    this.fireGlow.setDepth(this.originY + CAMPFIRE.y - 1);
-    for (const s of this.sparks) s.setDepth(D.labels - 1);
     // Idle pile sits on the road outside the gate, clear of the buildings and their labels.
-    this.idleBubble.setPosition(cx, Math.max(this.insets.top + 210, this.originY + 200)).setDepth(D.bubble);
+    let bubbleY = originY + 200;
+    if (sw) {
+      sw.rect('wall', r);
+      bubbleY = r.y - r.h / 2 - 50;
+    }
+    this.idleBubble.setPosition(cx, Math.max(this.insets.top + 210, bubbleY)).setDepth(D.bubble);
 
     const top = this.insets.top + 50;
     this.title.setPosition(cx, top).setDepth(D.hud);

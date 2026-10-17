@@ -5,7 +5,7 @@ import { Colors, DESIGN_HEIGHT, DESIGN_WIDTH, FONT_FAMILY, SceneKeys } from '../
 import { setFrameCap } from '../core/frameRate';
 import { t } from '../i18n';
 import { appReady } from '../platform/app';
-import { loadBattleWorld } from '../world3d/registry';
+import { load3D } from '../world3d/registry';
 import { BaseScene } from './BaseScene';
 
 /** First screen: logo and "tap to start". The tap also lets the browser start sound. */
@@ -59,7 +59,7 @@ export class TitleScene extends BaseScene {
     audio.unlock();
     audio.play('click');
     // The 3D battle loads while the title is up; it is almost always ready by the first tap.
-    void loadBattleWorld(this.game).then(() => this.scene.start(SceneKeys.Lobby));
+    void load3D(this.game).then(() => this.scene.start(SceneKeys.Lobby));
   }
 
   protected layout(width: number, height: number): void {

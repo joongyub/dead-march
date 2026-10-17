@@ -15,6 +15,8 @@ import { Coach } from '../ui/Coach';
 import { IconButton } from '../ui/IconButton';
 import { BaseScene } from './BaseScene';
 import { ShelterScene } from './ShelterScene';
+import { battleWorld } from '../world3d/registry';
+import type { BattleWorld } from '../world3d/BattleWorld';
 
 /** Survivors walking away down the road behind the menu. */
 const MARCHERS = 14;
@@ -22,9 +24,16 @@ const MARCHERS = 14;
 const MARCH_TIME = 16;
 const EMBERS = 22;
 
+/** The army behind the menu grows with the campaign: soldiers early, then gunners and tanks. */
+function paradeArmy(unlocked: number): number[] {
+  return [22, 4 + unlocked, Math.floor(unlocked / 2), Math.floor(unlocked / 4)];
+}
+
 /** Title, the stage card (browse unlocked stages; every stage with ?debug=1) and the start button. */
 export class LobbyScene extends BaseScene {
-  private bg!: Phaser.GameObjects.Image;
+  /** Behind the menu the army marches up the stage's street in 3D; without WebGL2 a painted city. */
+  private bw: BattleWorld | null = null;
+  private bg: Phaser.GameObjects.Image | null = null;
   private logo!: Phaser.GameObjects.Image;
   private subtitle!: Phaser.GameObjects.Text;
   private card!: Phaser.GameObjects.NineSlice;
@@ -72,9 +81,16 @@ export class LobbyScene extends BaseScene {
     this.stage = Math.min(save.data.unlocked, LEVELS.length);
     this.clock = 0;
 
-    this.bg = this.add.image(0, 0, LOBBY_BG).setOrigin(0.5, 0).setDepth(-10);
+    this.bw = battleWorld();
+    this.bg = null;
     this.marchers = [];
-    for (let i = 0; i < MARCHERS; i++) {
+    if (this.bw) {
+      this.bw.world.attach(this);
+      this.bw.beginParade(this.stage, paradeArmy(save.data.unlocked));
+    } else {
+      this.bg = this.add.image(0, 0, LOBBY_BG).setOrigin(0.5, 0).setDepth(-10);
+    }
+    for (let i = 0; i < (this.bw ? 0 : MARCHERS); i++) {
       const frame = UNIT_FRAMES[i % 7 === 6 ? 3 : i % 5 === 4 ? 2 : i % 3 === 2 ? 1 : 0];
       this.marchers.push(this.add.image(0, 0, ATLAS, frame).setTint(0x8a6a62));
       this.marchT[i] = i / MARCHERS;
@@ -143,6 +159,7 @@ export class LobbyScene extends BaseScene {
     const dt = Math.min(delta, 100) / 1000;
     this.clock += dt;
     this.logo.y = this.logoBaseY + Math.sin(this.clock * 1.4) * 4;
+    this.bw?.updateParade(dt);
     this.stepMarchers(dt);
     this.stepEmbers(dt);
     if (this.coach.visible) {
@@ -173,6 +190,10 @@ export class LobbyScene extends BaseScene {
   private refresh(): void {
     const level = getLevel(this.stage);
     this.stageNo.setText(String(level.id));
+    if (this.bw) {
+      this.bw.paradeStage(level.id);
+      this.cameras.main.setBackgroundColor(this.bw.fogFor(level.id));
+    }
     this.stageName.setText(stageName(level));
     const best = save.data.best[level.id];
     const info: string[] = [];
@@ -190,7 +211,7 @@ export class LobbyScene extends BaseScene {
     const horizon = this.bgTop + LOBBY_HORIZON_Y * this.bgScale;
     const bottom = this.viewH + 40;
     const span = bottom - horizon;
-    for (let i = 0; i < MARCHERS; i++) {
+    for (let i = 0; i < this.marchers.length; i++) {
       let t = this.marchT[i] + dt / MARCH_TIME;
       if (t >= 1) t -= 1;
       this.marchT[i] = t;
@@ -234,7 +255,7 @@ export class LobbyScene extends BaseScene {
     // Cover the screen; extra height on tall phones grows the sky upward.
     this.bgScale = Math.max(width / DESIGN_WIDTH, height / DESIGN_HEIGHT);
     this.bgTop = height - DESIGN_HEIGHT * this.bgScale;
-    this.bg.setPosition(cx, this.bgTop).setScale(this.bgScale);
+    this.bg?.setPosition(cx, this.bgTop).setScale(this.bgScale);
     this.roadX = cx;
 
     const logoY = Math.max(this.insets.top + 170, height * 0.17);

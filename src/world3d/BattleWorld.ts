@@ -6,11 +6,14 @@ import { Crowd3D } from './Crowd3D';
 import { Fx3D } from './Fx3D';
 import { Gates3D } from './Gates3D';
 import { Scenery } from './Scenery';
-import { getWorld, type World3D } from './World3D';
+import { BATTLE_VIEW, createWorld, type CameraView, type World3D } from './World3D';
 import { Zombies3D } from './Zombies3D';
 
 /** Haze colors by part of the campaign: dusk, a cold morning, the burning city, the infected zone. */
 const FOG = [0x9a7a80, 0x7a8aa0, 0xa8785e, 0x7a9478];
+/** Lobby: low behind the army, looking up the street at the burning skyline. */
+const PARADE_VIEW: CameraView = { back: 380, up: 310, ahead: 1100, lookY: 160, hFov: 44, followX: 0 };
+const PARADE_SPEED = 90;
 
 /**
  * Everything 3D in a battle, built once (models, pools, shaders) and reset for every battle, so
@@ -24,6 +27,8 @@ export class BattleWorld {
   readonly gates: Gates3D;
   readonly barricades: Barricades3D;
   readonly boss: Boss3D;
+  private paradeDistance = 0;
+  private nextBoom = 0;
 
   constructor(readonly world: World3D) {
     const scene = world.scene;
@@ -50,8 +55,53 @@ export class BattleWorld {
     this.boss.reset(sim.boss);
     this.scenery.begin(stage);
     this.world.setFogColor(this.fogFor(stage));
+    this.world.setView(BATTLE_VIEW);
     this.world.reset(sim.crowdX, 0);
     this.scenery.update(0);
+  }
+
+  /** Lobby backdrop: the army marching up this stage's street, seen from low behind it. */
+  beginParade(stage: number, counts: readonly number[]): void {
+    this.fx.clear();
+    this.crowd.reset();
+    this.zombies.reset();
+    this.gates.reset();
+    this.barricades.reset();
+    this.boss.clear();
+    this.paradeDistance = 0;
+    this.nextBoom = 2;
+    this.world.setView(PARADE_VIEW);
+    this.world.reset(360, 0);
+    this.paradeStage(stage);
+    let units = 0;
+    for (const n of counts) units += n;
+    // Same circle the battle gives an army this size.
+    this.crowd.sync(counts, units, Math.min(150, 34 + 6.5 * Math.sqrt(Math.min(units, 120))));
+  }
+
+  /** The street and haze of another stage (the player browsing stages). */
+  paradeStage(stage: number): void {
+    this.scenery.begin(stage);
+    this.scenery.update(this.paradeDistance);
+    this.world.setFogColor(this.fogFor(stage));
+  }
+
+  updateParade(dt: number): void {
+    const d = (this.paradeDistance += PARADE_SPEED * dt);
+    const fx = this.fx;
+    fx.begin();
+    this.world.follow(dt, 360, d);
+    this.scenery.update(d);
+    this.crowd.update(dt, 360, -d, true);
+    // Now and then something blows up far down the street.
+    this.nextBoom -= dt;
+    if (this.nextBoom <= 0) {
+      this.nextBoom = 2.5 + Math.random() * 3;
+      const side = Math.random() < 0.5 ? -1 : 1;
+      fx.explosion(360 + side * (120 + Math.random() * 260), 0, -d - 1300 - Math.random() * 900, 1.4);
+      this.world.shake(0.06);
+    }
+    fx.end(dt, this.world.camera.position.z + 200);
   }
 
   /** Moves everything to this frame's battle state (distance and crowd x interpolated). */
@@ -75,21 +125,9 @@ let battleWorld: BattleWorld | null = null;
 /** The battle's 3D world, created on first use; null without WebGL2. */
 export function getBattleWorld(game: Phaser.Game): BattleWorld | null {
   if (!battleWorld) {
-    const world = getWorld(game);
+    const world = createWorld(game);
     if (!world) return null;
     battleWorld = new BattleWorld(world);
   }
   return battleWorld;
-}
-
-/** Builds the 3D battle and compiles its shaders ahead of the first battle (loading screen). */
-export function prepareBattleWorld(game: Phaser.Game): boolean {
-  const bw = getBattleWorld(game);
-  if (!bw) return false;
-  // Three.js changes GL state behind Phaser's back; Phaser re-applies its own afterwards.
-  const renderer = game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
-  renderer.pipelines.clear();
-  bw.world.warmUp();
-  renderer.pipelines.rebind();
-  return true;
 }

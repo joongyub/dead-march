@@ -69,15 +69,18 @@ void main() {
   gl_FragColor = vec4(mix(t.rgb * vColor.rgb, uFogColor, vFog), t.a * vColor.a);
 }`;
 
+const STRIDE = 13;
+
+/** The effect sprites, drawn once and shared by every world's effects. */
+let fxTexture: THREE.Texture | null = null;
+
 /** One draw call worth of textured quads, rewritten from scratch every frame. */
 class QuadBatch {
   readonly mesh: THREE.Mesh;
   private readonly geometry = new THREE.InstancedBufferGeometry();
-  private readonly pos: THREE.InstancedBufferAttribute;
-  private readonly dir: THREE.InstancedBufferAttribute;
-  private readonly size: THREE.InstancedBufferAttribute;
-  private readonly color: THREE.InstancedBufferAttribute;
-  private readonly frame: THREE.InstancedBufferAttribute;
+  /** Per quad: position (3), streak direction (3), size and rotation (2), color (4), frame (1), in one buffer. */
+  private readonly buffer: THREE.InstancedInterleavedBuffer;
+  private readonly data: Float32Array;
   readonly material: THREE.ShaderMaterial;
   count = 0;
 
@@ -86,21 +89,15 @@ class QuadBatch {
     this.geometry.index = base.index;
     this.geometry.setAttribute('position', base.getAttribute('position'));
     this.geometry.setAttribute('uv', base.getAttribute('uv'));
-    const attr = (size: number) => {
-      const a = new THREE.InstancedBufferAttribute(new Float32Array(capacity * size), size);
-      a.setUsage(THREE.DynamicDrawUsage);
-      return a;
-    };
-    this.pos = attr(3);
-    this.dir = attr(3);
-    this.size = attr(2);
-    this.color = attr(4);
-    this.frame = attr(1);
-    this.geometry.setAttribute('iPos', this.pos);
-    this.geometry.setAttribute('iDir', this.dir);
-    this.geometry.setAttribute('iSize', this.size);
-    this.geometry.setAttribute('iColor', this.color);
-    this.geometry.setAttribute('iFrame', this.frame);
+    // One interleaved buffer, so each frame is a single upload.
+    this.data = new Float32Array(capacity * STRIDE);
+    this.buffer = new THREE.InstancedInterleavedBuffer(this.data, STRIDE);
+    this.buffer.setUsage(THREE.DynamicDrawUsage);
+    this.geometry.setAttribute('iPos', new THREE.InterleavedBufferAttribute(this.buffer, 3, 0));
+    this.geometry.setAttribute('iDir', new THREE.InterleavedBufferAttribute(this.buffer, 3, 3));
+    this.geometry.setAttribute('iSize', new THREE.InterleavedBufferAttribute(this.buffer, 2, 6));
+    this.geometry.setAttribute('iColor', new THREE.InterleavedBufferAttribute(this.buffer, 4, 8));
+    this.geometry.setAttribute('iFrame', new THREE.InterleavedBufferAttribute(this.buffer, 1, 12));
     this.geometry.instanceCount = 0;
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERT,
@@ -126,24 +123,21 @@ class QuadBatch {
 
   push(x: number, y: number, z: number, dx: number, dy: number, dz: number, size: number, rot: number, r: number, g: number, b: number, a: number, frame: number): void {
     if (this.count >= this.capacity) return;
-    const i = this.count++;
-    const p = this.pos.array as Float32Array;
-    p[i * 3] = x;
-    p[i * 3 + 1] = y;
-    p[i * 3 + 2] = z;
-    const d = this.dir.array as Float32Array;
-    d[i * 3] = dx;
-    d[i * 3 + 1] = dy;
-    d[i * 3 + 2] = dz;
-    const s = this.size.array as Float32Array;
-    s[i * 2] = size;
-    s[i * 2 + 1] = rot;
-    const c = this.color.array as Float32Array;
-    c[i * 4] = r;
-    c[i * 4 + 1] = g;
-    c[i * 4 + 2] = b;
-    c[i * 4 + 3] = a;
-    (this.frame.array as Float32Array)[i] = frame;
+    const o = this.count++ * STRIDE;
+    const d = this.data;
+    d[o] = x;
+    d[o + 1] = y;
+    d[o + 2] = z;
+    d[o + 3] = dx;
+    d[o + 4] = dy;
+    d[o + 5] = dz;
+    d[o + 6] = size;
+    d[o + 7] = rot;
+    d[o + 8] = r;
+    d[o + 9] = g;
+    d[o + 10] = b;
+    d[o + 11] = a;
+    d[o + 12] = frame;
   }
 
   end(): void {
@@ -151,11 +145,9 @@ class QuadBatch {
     this.geometry.instanceCount = n;
     this.mesh.visible = n > 0;
     if (n === 0) return;
-    for (const a of [this.pos, this.dir, this.size, this.color, this.frame]) {
-      a.clearUpdateRanges();
-      a.addUpdateRange(0, n * a.itemSize);
-      a.needsUpdate = true;
-    }
+    this.buffer.clearUpdateRanges();
+    this.buffer.addUpdateRange(0, n * STRIDE);
+    this.buffer.needsUpdate = true;
   }
 }
 
@@ -530,7 +522,7 @@ export class Fx3D {
   density = 1;
 
   constructor(scene: THREE.Scene, fog: THREE.Fog) {
-    const texture = buildFxTexture();
+    const texture = (fxTexture ??= buildFxTexture());
     this.add = new QuadBatch(420, texture, true, fog);
     this.alpha = new QuadBatch(720, texture, false, fog);
     this.hot = new Particles(400);
@@ -579,6 +571,31 @@ export class Fx3D {
   }
 
   // ---------- building blocks ----------
+
+  /** A glow drawn this frame only (lamps, windows, a campfire's halo); call it every frame. */
+  halo(x: number, y: number, z: number, size: number, hex: number, alpha = 0.6): void {
+    this.add.push(x, y, z, 0, 0, 0, size, 0, ((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255, alpha, Frame.Glow);
+  }
+
+  /** One tongue of fire licking up and fading (campfires, burning wrecks); spawn a few every frame. */
+  flame(x: number, y: number, z: number, size: number, hex = 0xff8a30, life = 0.5): void {
+    const i = this.hot.spawn(x, y, z, life * rand(0.7, 1.2), size, hex, Frame.Flame);
+    this.hot.s1[i] = size * 0.25;
+    this.hot.vy[i] = rand(45, 90);
+    this.hot.vx[i] = rand(-12, 12);
+    this.hot.vz[i] = rand(-6, 6);
+    this.hot.vrot[i] = rand(-1.5, 1.5);
+    this.hot.a0[i] = 0.95;
+  }
+
+  /** A glowing ember drifting up from a fire. */
+  ember(x: number, y: number, z: number, hex = 0xffa040): void {
+    const i = this.hot.spawn(x, y, z, rand(1.2, 2.2), rand(3, 5), hex, Frame.Glow);
+    this.hot.vy[i] = rand(40, 80);
+    this.hot.vx[i] = rand(-20, 20);
+    this.hot.vz[i] = rand(-20, 20);
+    this.hot.s1[i] = 1.5;
+  }
 
   glow(x: number, y: number, z: number, size: number, hex: number, life = 0.12, alpha = 0.9): void {
     const i = this.hot.spawn(x, y, z, life, size, hex, Frame.Glow);

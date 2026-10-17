@@ -59,6 +59,17 @@ export class Boss3D {
     this.height = pool.mesh.geometry.boundingBox!.max.y;
   }
 
+  /** No boss (the lobby parade). */
+  clear(): void {
+    for (const p of this.pools.values()) {
+      p.reset();
+      p.flush();
+    }
+    this.pool = null;
+    this.boss = null;
+    this.slot = -1;
+  }
+
   get visible(): boolean {
     return this.slot >= 0 && !this.dead;
   }

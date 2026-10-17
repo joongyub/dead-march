@@ -257,7 +257,7 @@ async function main() {
     results.wallBefore = await page.evaluate(() => window.__dm.save.data.buildings.wall ?? 1);
     await page.evaluate(() => {
       const shelter = window.__dm.game.scene.getScene('Shelter');
-      window.__wallPos = (({ x, y }) => ({ x, y: y - 40 }))(shelter.views.find((v) => v.id === 'wall').image);
+      window.__wallPos = (({ x, y }) => ({ x, y }))(shelter.views.find((v) => v.id === 'wall').hit);
     });
     const wallPos = await page.evaluate(() => window.__wallPos);
     await tapGame(wallPos.x, wallPos.y);

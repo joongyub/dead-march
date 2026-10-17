@@ -4,7 +4,7 @@
 // The headless browser has no GPU, so instead of trusting its frame rate this drives the game loop by
 // hand: every frame is one game.step() of 1/60 s, timed in JavaScript (game logic + preparing the draw
 // calls, which is the CPU part a phone also pays). GPU time is not included; on a phone it overlaps
-// with the next frame's CPU work.
+// with the next frame's CPU work, so each timed frame starts after the previous one has been drawn.
 //
 // Each battle is sampled in three windows of WINDOW frames: the start, the middle of the road, and
 // the boss fight (the simulation skips ahead between windows).
@@ -24,7 +24,9 @@ const PROFILE_ONLY = process.argv.includes('--profile-only');
 const PROFILE = PROFILE_ONLY || process.argv.includes('--profile');
 const THROTTLES = QUICK ? [4] : [4, 6];
 const WINDOW = QUICK ? 150 : 300;
-const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, locale: 'ko-KR' };
+// One canvas pixel per CSS pixel: the CPU work per frame does not depend on it, and the software GPU
+// takes a quarter of the time to draw each frame that the measurement waits for.
+const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, locale: 'ko-KR' };
 
 const SCENARIOS = [
   { name: '스테이지 1', data: { stage: 1, modifiers: expectedModifiers(1) } },
@@ -40,7 +42,9 @@ async function openBattle(page, base, scenario) {
   await page.goto(`${base}?debug=1`);
   await page.waitForFunction(() => window.__dm?.monitor && window.__dm.game.scene.isActive('Title'), null, { timeout: 30000 });
   await page.evaluate((low) => {
-    const { game, save, setLowSpec } = window.__dm;
+    const { game, save, setLowSpec, monitor } = window.__dm;
+    // Frames here take far longer than real time; the overlay would refresh every few frames.
+    monitor.snapshotIntervalMs = Infinity;
     save.data.settings.lowSpec = low ? 'on' : 'off';
     save.data.tutorial = { swipe: true, gate: true, merge: true, shelter: true };
     setLowSpec(low);
@@ -56,9 +60,15 @@ async function sampleFrames(page, frames) {
   return page.evaluate((n) => {
     const { game, greedySide } = window.__dm;
     const battle = window.__battle;
+    const gl = game.renderer.gl;
+    const pixel = new Uint8Array(4);
     const times = [];
     let t = performance.now();
     for (let i = 0; i < n && !battle.sim.finished; i++) {
+      // Wait for the software GPU to finish the previous frame outside the timed part (reading a pixel
+      // waits; finish() does not in Chrome): otherwise its pixel work queues up and the next call
+      // that waits on the GPU blocks some later frame for seconds.
+      gl?.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
       const sim = battle.sim;
       let next = null;
       for (const g of sim.gates) if (!g.passed && g.z > sim.distance && (!next || g.z < next.z)) next = g;
@@ -255,7 +265,7 @@ async function main() {
   lines.push('');
   lines.push('`npm run build && npm run perf`로 다시 만들 수 있습니다. 크롬의 CPU 속도 제한(4배, 6배 느리게)으로 보급형 폰을 흉내 낸 값입니다.');
   lines.push('');
-  lines.push('- 헤드리스 브라우저에는 GPU가 없어서 화면 주사율 대신 한 프레임(1/60초)씩 직접 돌리며 자바스크립트 시간(게임 로직 + 그리기 준비)을 잽니다. GPU가 픽셀을 칠하는 시간은 빠져 있고, 그건 휴대폰의 `?debug=1`로 봅니다.');
+  lines.push('- 헤드리스 브라우저에는 GPU가 없어서 화면 주사율 대신 한 프레임(1/60초)씩 직접 돌리며 자바스크립트 시간(게임 로직 + 그리기 준비)을 잽니다. GPU가 픽셀을 칠하는 시간은 빠져 있고(프레임마다 앞 프레임 그리기가 끝나길 기다린 뒤에 잽니다), 그건 휴대폰의 `?debug=1`로 봅니다. 3D 전투는 Three.js가 같은 WebGL 화면에 먼저 그리고 Phaser가 글자와 HUD를 위에 그립니다.');
   lines.push(`- 전투마다 시작, 도로 중간, 보스전에서 ${WINDOW}프레임씩 잽니다. 스테이지 10, 20은 그 시점에 예상되는 피난처 강화를 적용했습니다.`);
   lines.push('- 1% 저점 = 가장 느린 1% 프레임의 시간(99번째 백분위). 예산은 한 프레임 16.6ms, 로직 4ms, 드로우 콜 20회, 메모리 250MB.');
   lines.push('- 측정용 조종은 게이트만 고르고 장애물은 피하지 않아서, 스테이지 20은 도로 중간 전에 무리가 전멸해 시작 구간만 잽니다(프레임 수가 적어 1% 저점이 가장 느린 3프레임으로 정해집니다).');

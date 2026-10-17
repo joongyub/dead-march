@@ -27,9 +27,10 @@
 | 이름 | 버전 | 라이선스 | 용도 |
 | --- | --- | --- | --- |
 | [Phaser](https://phaser.io) | 3.90.0 | MIT | 게임 엔진 (게임에 포함) |
+| [three.js](https://threejs.org) | 0.186.1 | MIT | 3D 전투 화면 (게임에 포함) |
 | [TypeScript](https://www.typescriptlang.org) | 5.9.3 | Apache-2.0 | 개발 도구 (게임에 포함되지 않음) |
 | [Vite](https://vite.dev) | 8.3.1 | MIT | 개발 도구 |
 | [Playwright](https://playwright.dev) | 1.56.1 | Apache-2.0 | 자동 검사, 아이콘 생성 |
 | [tsx](https://tsx.is) | 4.23.15 | MIT | 밸런스 스크립트 실행 |
 
-Phaser의 MIT 라이선스는 저작권 표시를 함께 배포하라고 요구합니다. 그 전문을 `public/licenses.txt`로 게임과 함께 배포합니다(설정 화면 아래 "오픈소스 라이선스"에서 열림).
+Phaser와 three.js의 MIT 라이선스는 저작권 표시를 함께 배포하라고 요구합니다. 그 전문을 `public/licenses.txt`로 게임과 함께 배포합니다(설정 화면 아래 "오픈소스 라이선스"에서 열림).

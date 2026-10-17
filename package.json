@@ -1,7 +1,7 @@
 {
   "name": "dead-march",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
@@ -28,10 +28,12 @@
     "@capacitor/preferences": "8.0.1",
     "@capacitor/splash-screen": "8.0.2",
     "@capgo/native-purchases": "8.8.1",
-    "phaser": "3.90.0"
+    "phaser": "3.90.0",
+    "three": "0.186.1"
   },
   "devDependencies": {
     "@capacitor/cli": "8.5.2",
+    "@types/three": "0.186.0",
     "playwright-core": "1.56.1",
     "tsx": "4.23.15",
     "typescript": "5.9.3",

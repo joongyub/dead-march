@@ -5,11 +5,18 @@ import { t } from '../i18n';
 import { services } from '../services';
 import { greedySide } from '../sim/agent';
 import type { BattleSim, SimEvent, SimGate } from '../sim/BattleSim';
-import { ROAD_CENTER, ROAD_LEFT, ROAD_RIGHT } from '../sim/types';
 import { Coach } from '../ui/Coach';
 import { Depth } from './depth';
 
 type Step = 'swipe' | 'gate' | 'merge';
+
+/** Screen positions of things in the 3D battle, in game units. */
+export interface BattleScreen {
+  /** The army's feet. */
+  crowd: { x: number; y: number };
+  /** Bottom middle of one side of a gate; false if it is off screen. */
+  gate(g: SimGate, side: number, out: { x: number; y: number }): boolean;
+}
 
 /** Finger movement needed before the swipe lesson counts as learned. */
 const SWIPE_DISTANCE = 220;
@@ -30,6 +37,7 @@ export class BattleTutorial {
   private gate: SimGate | null = null;
   private gateSide = 0;
   private readonly enabled: boolean;
+  private readonly point = { x: 0, y: 0 };
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -65,7 +73,7 @@ export class BattleTutorial {
     }
   }
 
-  update(dt: number, sim: BattleSim, roadX: number, crowdY: number, mergeIcon: Phaser.GameObjects.Image): void {
+  update(dt: number, sim: BattleSim, screen: BattleScreen, mergeIcon: Phaser.GameObjects.Image): void {
     if (!this.enabled) return;
     this.coach.tick(dt);
     if (this.step === null && !save.data.tutorial.gate) {
@@ -79,15 +87,15 @@ export class BattleTutorial {
     const width = viewWidth(this.scene.scale);
     switch (this.step) {
       case 'swipe':
-        this.coach.sweepAt(roadX + sim.crowdX, crowdY + 130, 130);
-        this.coach.textAt(width / 2, crowdY - 330);
+        this.coach.sweepAt(screen.crowd.x, screen.crowd.y + 110, 130);
+        this.coach.textAt(width / 2, screen.crowd.y - 330);
         break;
       case 'gate': {
         const g = this.gate!;
-        const laneX = this.gateSide === 0 ? (ROAD_LEFT + ROAD_CENTER) / 2 : (ROAD_CENTER + ROAD_RIGHT) / 2;
-        const y = crowdY - (g.z - sim.distance);
-        this.coach.pointAt(roadX + laneX, y + 50);
-        this.coach.textAt(width / 2, Math.max(y - 120, 260));
+        if (screen.gate(g, this.gateSide, this.point)) {
+          this.coach.pointAt(this.point.x, this.point.y + 30);
+          this.coach.textAt(width / 2, Math.max(this.point.y - 200, 260));
+        }
         if (g.passed) this.learn('gate');
         break;
       }

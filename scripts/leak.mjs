@@ -51,7 +51,12 @@ async function main() {
         let tweens = 0;
         for (const s of game.scene.scenes) tweens += s.tweens?.getTweens().length ?? 0;
         const battle = game.scene.getScene('Battle');
+        // The 3D world is built once and reused; its GPU resources must not grow either.
+        const three = window.__battle?.bw?.world.renderer.info;
         return {
+          geometries: three?.memory.geometries ?? 0,
+          gpuTextures: three?.memory.textures ?? 0,
+          programs: three?.programs?.length ?? 0,
           textures: Object.keys(game.textures.list).length,
           objects,
           tweens,
@@ -116,6 +121,7 @@ async function main() {
     [`JS heap grows < ${HEAP_GROWTH_MB}MB from battle ${first?.battles} to ${last?.battles} (${(last?.heapMB - first?.heapMB).toFixed(2)}MB)`]:
       last.heapMB - first.heapMB < HEAP_GROWTH_MB,
     'texture count steady': steady('textures'),
+    '3D geometries, textures and shaders steady': steady('geometries') && steady('gpuTextures') && steady('programs'),
     'game / scale / input listeners steady': steady('gameListeners') && steady('scaleListeners') && steady('battleInputListeners'),
     'DOM nodes steady': steady('domNodes'),
     'no JS errors': errors.length === 0,

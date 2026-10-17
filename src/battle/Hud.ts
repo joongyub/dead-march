@@ -91,7 +91,8 @@ export class Hud {
     this.marker.setVisible(false);
   }
 
-  update(dt: number, sim: BattleSim, crowdX: number, crowdY: number): void {
+  /** (pillX, pillY): where the army size goes, just above the army on screen. */
+  update(dt: number, sim: BattleSim, pillX: number, pillY: number): void {
     // Progress along the road, or the boss's remaining health.
     const frac = this.bossMode
       ? Math.max(0, sim.boss.hp / sim.boss.hp0)
@@ -118,11 +119,11 @@ export class Hud {
     }
     if (this.powerPop > 0) this.powerPop = Math.max(0, this.powerPop - dt * 5);
     const visible = power > 0;
-    const y = crowdY - sim.crowdRadius - 70;
+    const y = pillY;
     const w = this.powerBg.width;
     const s = 1 + this.powerPop * 0.25;
-    this.powerBg.setPosition(crowdX, y).setScale(s).setVisible(visible);
-    this.powerIcon.setPosition(crowdX - w / 2 + 34 * s, y).setVisible(visible);
-    this.powerText.setPosition(crowdX - w / 2 + 62 * s, y + 2).setScale(s).setVisible(visible);
+    this.powerBg.setPosition(pillX, y).setScale(s).setVisible(visible);
+    this.powerIcon.setPosition(pillX - w / 2 + 34 * s, y).setVisible(visible);
+    this.powerText.setPosition(pillX - w / 2 + 62 * s, y + 2).setScale(s).setVisible(visible);
   }
 }

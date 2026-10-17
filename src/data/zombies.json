@@ -1,9 +1,9 @@
 {
   "kinds": {
-    "walker": { "name": "좀비", "hp": 1, "power": 1, "speed": 40, "aggroRange": 1400 },
-    "runner": { "name": "주자 좀비", "hp": 1, "power": 1, "speed": 260, "aggroRange": 900 },
-    "brute": { "name": "탱커 좀비", "hp": 10, "power": 8, "speed": 30, "aggroRange": 1400 },
-    "exploder": { "name": "폭발 좀비", "hp": 2, "power": 2, "speed": 60, "aggroRange": 1200, "blast": 12 }
+    "walker": { "name": "좀비", "hp": 0.5, "power": 0.5, "speed": 40, "aggroRange": 1400 },
+    "runner": { "name": "주자 좀비", "hp": 0.5, "power": 0.5, "speed": 260, "aggroRange": 900 },
+    "brute": { "name": "탱커 좀비", "hp": 5, "power": 4, "speed": 30, "aggroRange": 1400 },
+    "exploder": { "name": "폭발 좀비", "hp": 1, "power": 1, "speed": 60, "aggroRange": 1200, "blast": 6 }
   },
   "bosses": {
     "alpha": { "name": "우두머리 좀비", "speed": 80, "radius": 95 },

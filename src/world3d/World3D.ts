@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import * as THREE from 'three';
 import { Depth } from '../battle/depth';
+import { DESIGN_WIDTH } from '../config';
 import { quality } from '../core/quality';
 import { flags } from '../platform/flags';
 import { sharedContext } from './context';
@@ -24,7 +25,10 @@ export interface CameraView {
   /** Looks at a point this far ahead of it, at this height. */
   ahead: number;
   lookY: number;
-  /** Horizontal field of view in degrees; it stays fixed, so taller phones see more ground instead of less width. */
+  /**
+   * Horizontal field of view in degrees across the 720-unit design width; it stays fixed, so taller phones
+   * see more ground instead of less width, and wide screens (a computer) see more of the sides.
+   */
   hFov: number;
   /** How much the camera follows sideways moves (0 = stays over x = 360). */
   followX: number;
@@ -180,7 +184,10 @@ export class World3D {
     this.width = width;
     this.height = height;
     const aspect = width / height;
-    this.baseFov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.view.hFov / 2)) / aspect));
+    // The field of view spans the design width, not the whole canvas: a landscape window would
+    // otherwise zoom in on the road ahead and push the army off the bottom of the screen.
+    const designAspect = Math.min(width, DESIGN_WIDTH * quality.renderScale) / height;
+    this.baseFov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.view.hFov / 2)) / designAspect));
     this.camera.aspect = aspect;
     this.camera.fov = this.baseFov + this.fovKick;
     this.camera.updateProjectionMatrix();

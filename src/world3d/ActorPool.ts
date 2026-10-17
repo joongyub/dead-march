@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { actorMaterial } from './actorMaterial';
 import { Frame } from './fxAtlas';
 import type { Fx3D } from './Fx3D';
+import { writeTransform } from './transform';
 
 const enum State {
   Free = 0,
@@ -60,11 +61,6 @@ export class ActorPool {
   private freeCount = 0;
   private clock = 0;
   live = 0;
-  private readonly m = new THREE.Matrix4();
-  private readonly q = new THREE.Quaternion();
-  private readonly e = new THREE.Euler(0, 0, 0, 'YXZ');
-  private readonly p = new THREE.Vector3();
-  private readonly s = new THREE.Vector3();
 
   constructor(
     geometry: THREE.BufferGeometry,
@@ -278,9 +274,7 @@ export class ActorPool {
         arr[o + 14] = this.z[i];
         arr[o + 15] = 1;
       } else {
-        this.q.setFromEuler(this.e.set(this.pitch[i], this.yaw[i], this.roll[i]));
-        this.m.compose(this.p.set(this.x[i], this.y[i], this.z[i]), this.q, this.s.set(s, s, s));
-        this.m.toArray(arr, o);
+        writeTransform(arr, o, this.x[i], this.y[i], this.z[i], this.pitch[i], this.yaw[i], this.roll[i], s, s, s);
         if (centered) {
           arr[o + 12] -= arr[o + 4] * c;
           arr[o + 13] -= arr[o + 5] * c;

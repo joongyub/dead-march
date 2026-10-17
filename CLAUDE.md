@@ -24,14 +24,14 @@
 | --- | --- |
 | 한 프레임 전체 | 16.6ms 이하 |
 | 게임 로직 | 프레임당 4ms 이하 |
-| 화면에 그리는 유닛 | 최대 200개 (아군 90 + 좀비 110, 실제 병력은 숫자로 표시) |
+| 화면에 그리는 유닛 | 최대 250개 (아군 90 + 좀비 160, 실제 병력은 숫자로 표시) |
 | 드로우 콜 | 전투 중 20회 이하 |
 | 처음 내려받는 용량 | 10MB 이하 |
 | 메모리 | 250MB 이하 |
 
 ## 최적화 원칙 9가지
 
-1. **보이는 것과 계산하는 것을 분리**: 병력이 5,000이어도 대표 유닛 최대 200개와 숫자만 그린다. 전투 결과는 숫자 계산으로 정한다.
+1. **보이는 것과 계산하는 것을 분리**: 병력이 5,000이어도 대표 유닛 최대 250개와 숫자만 그린다. 전투 결과는 숫자 계산으로 정한다.
 2. **물리 엔진 미사용**: Arcade/Matter 물리를 켜지 않는다. 무리 단위 사각형 비교와 격자(그리드) 검색으로 충돌을 판정한다.
 3. **오브젝트 풀링**: 총알, 좀비, 파티클, 데미지 숫자는 `src/core/Pool.ts`로 재사용한다. `update()` 안에서 `new`, 배열/객체 리터럴, 클로저 생성, `filter/map` 금지.
 4. **텍스처 아틀라스 하나로**: 2D 그림은 한 장의 아틀라스에 모은다. 3D는 모델마다 인스턴싱 메시 하나(유닛 수와 상관없이 드로우 콜 1회), 빛은 꼭짓점 색에 미리 구워 `MeshBasicMaterial`만 쓰고, 효과는 3회(더하기, 반투명, 파편)로 그린다. 매 프레임 바뀌는 글자는 `BitmapText`로 쓴다(`Text`는 바뀔 때마다 텍스처를 다시 올린다). `Graphics`를 매 프레임 다시 그리지 않는다.
@@ -46,7 +46,7 @@
 ## 저사양 모드
 
 - 설정의 저사양 모드는 자동/켜기/끄기. 자동이면 전투 중 평균 프레임이 20ms를 3초 넘게 넘을 때 켜지고(`SlowFrameDetector`), 그 기기에서는 다음 실행에도 켜진다(`save.data.device.lowSpec`).
-- 켜지면 캔버스 75% 해상도, 파티클 절반, 화면 유닛 최대 120개(`quality.renderScale/particleScale/unitScale`).
+- 켜지면 캔버스 75% 해상도, 파티클 절반, 화면 유닛 최대 120개(`quality.renderScale/particleScale/unitScale`, 좀비는 아군이 쓰고 남은 만큼). 전투 중에 켜지면 이미 그린 좀비도 뒷줄부터 줄인다.
 - 캔버스 크기가 설계 단위와 달라질 수 있으므로 장면은 크기를 `layout(width, height)` 인자나 `viewWidth/viewHeight(this.scale)`로 얻고, 포인터 좌표는 `quality.renderScale`로 나눈다. 카메라 확대는 `BaseScene`이 맞춘다.
 
 ## 폴더 구조
@@ -63,7 +63,7 @@ src/
                        캔버스 텍스처는 canvasTexture.ts로 등록한다 (Phaser addCanvas는 픽셀을 다시 읽어 수 초 걸림)
   audio/               효과음과 음악을 Web Audio로 합성 (파일 없음). 동시 8개, 같은 소리 최소 간격
   world3d/             3D 세계 (Three.js). 모델은 코드로 만든 상자·원기둥(models.ts, 피난처는 shelterModels.ts), 걷기·흔들기는 셰이더(actorMaterial.ts),
-                       ActorPool(살아 있는 유닛 + 날아가는 시체), Fx3D(불꽃·피·폭발·파편·연기), 도로와 건물(Scenery), 하늘(Sky), 카메라 흔들림(World3D)
+                       ActorPool(살아 있는 유닛 + 날아가는 시체), Fx3D(불꽃·피·폭발·파편·연기), Shells3D(게이트 포격 포탄), 도로와 건물(Scenery), 하늘(Sky), 카메라 흔들림(World3D)
                        BattleWorld(전투 + 로비 행군), ShelterWorld(피난처 마당, 건물 15모양, 모닥불, 생존자)
                        따로 내려받는 조각이라 타이틀에서 미리 받고 둘 다 예열한다(registry.ts의 load3D). 이 조각 밖에서는 three를 import하지 않는다(layout.ts처럼)
   battle/              전투 화면의 2D 층 (세계 위치에 붙는 숫자 WorldLabels, 효과, HUD, 1스테이지 튜토리얼)
@@ -91,7 +91,7 @@ docs/                  android.md(앱 출시 안내), monetization.md(광고·�
 .github/workflows/     ci.yml (PR 검사), deploy.yml (Pages 배포), android.yml (APK/AAB)
 ```
 
-전투 규칙(`src/sim/`)은 결정적이고 난수를 쓰지 않는다. 규칙이나 `units.json`/`zombies.json`을 바꾸면 `npm run gen-levels`로 스테이지를 다시 맞추고 `npm run balance`로 표를 갱신한다. 피난처 비용이나 전투 보상(`economy.json`)을 바꾸면 `npm run gen-shelter && npm run playtime`으로 플레이 시간을 다시 확인한다.
+전투 규칙(`src/sim/`)은 결정적이고 난수를 쓰지 않는다. 아군과 좀비는 서로 닿지 않는다: 좀비 무리는 아군 앞 전선(`frontLine` = 무리 반지름 + `FRONT_GAP`)에서 멈춰 총에 쓰러지고, 전선에 붙어 있는 동안 아군이 줄어든다(멀리서 쓰러뜨릴수록 이득). 게이트를 지날 때마다 앞쪽 가장 가까운 무리에 포탄 일제 사격(`SALVO_*`)이 날아간다. 바리케이드만 몸으로 부순다(`CONTACT`). 규칙이나 `units.json`/`zombies.json`을 바꾸면 `npm run gen-levels`로 스테이지를 다시 맞추고 `npm run balance`로 표를 갱신한다. 피난처 비용이나 전투 보상(`economy.json`)을 바꾸면 `npm run gen-shelter && npm run playtime`으로 플레이 시간을 다시 확인한다.
 
 ## 코딩 규칙
 

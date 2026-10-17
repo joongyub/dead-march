@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { ATLAS } from '../art/atlas';
+import { ATLAS, formatCount } from '../art/atlas';
 import { audio } from '../audio/Audio';
 import { Depth } from '../battle/depth';
 import { Effects } from '../battle/Effects';
@@ -18,7 +18,7 @@ import { shelterModifiers } from '../meta/shelter';
 import { save } from '../game/save';
 import { flags } from '../platform/flags';
 import { vibrate } from '../platform/haptics';
-import { BattleSim, CONTACT, type BattleModifiers, type SimGate } from '../sim/BattleSim';
+import { BattleSim, SALVO_FLIGHT, type BattleModifiers, type SimGate, type SimHorde } from '../sim/BattleSim';
 import { getLevel, RULES } from '../sim/rules';
 import { ROAD_CENTER, ROAD_LEFT, ROAD_RIGHT, type LevelData } from '../sim/types';
 import type { BattleWorld } from '../world3d/BattleWorld';
@@ -79,8 +79,9 @@ export class BattleScene extends BaseScene {
   private shotAcc = 0;
   private contactAcc = 0;
   private powerSeen = 0;
-  private meleeLoss = 0;
-  private meleeTimer = 0;
+  /** Army lost since the last red number, and time until the next one. */
+  private lossAcc = 0;
+  private lossTimer = 0;
   private lastMergePopup = 0;
   private distance = 0;
   private crowdX = ROAD_CENTER;
@@ -132,8 +133,8 @@ export class BattleScene extends BaseScene {
     this.shotAcc = 0;
     this.contactAcc = 0;
     this.powerSeen = this.sim.army.power;
-    this.meleeLoss = 0;
-    this.meleeTimer = 0;
+    this.lossAcc = 0;
+    this.lossTimer = 0;
     this.slowFrames.reset();
 
     bw.begin(this.sim, this.stress ? 1 : this.level.id);
@@ -385,16 +386,20 @@ export class BattleScene extends BaseScene {
           }
           break;
         }
-        case 'clash':
-          audio.play('clash');
-          this.hitStop = 55;
-          world.shake(0.4);
-          world.punch(2);
-          crowd.hitFront(1.4);
-          vibrate(25);
+        case 'frontLine':
+          // A group reached the army's front line: it stops there and is shot down point-blank.
+          audio.play('shotHeavy');
+          world.shake(0.25);
+          world.punch(1.5);
+          vibrate(20);
           break;
+        case 'salvo': {
+          const shells = Math.max(2, Math.round(e.salvo.shells * quality.particleScale));
+          this.bw.shells.fire(e.salvo.horde, cx, cz, r, shells, SALVO_FLIGHT);
+          break;
+        }
         case 'hordeCleared':
-          if (e.byMelee) world.shake(0.2);
+          this.killSlam(e.horde, e.atLine);
           break;
         case 'barricadeSmashed':
           audio.play('smash');
@@ -539,6 +544,13 @@ export class BattleScene extends BaseScene {
       if (sim.targetKind === 'horde' && sim.targetHorde) {
         bw.zombies.hit(sim.targetHorde, j, PUSH[tier]);
         if (tier < 3) fx.hit(p.x, p.y, p.z, ZOMBIE_BLOOD, tier >= 2);
+        if (tier > 0 && tier < 3 && Math.random() < 0.3) {
+          // Blood bursts out of the back of the wound, away from the shooter.
+          const dx = p.x - m.x;
+          const dz = p.z - m.z;
+          const len = Math.sqrt(dx * dx + dz * dz) || 1;
+          fx.spurt(p.x, p.y, p.z, ZOMBIE_BLOOD, dx / len, dz / len, tier === 2 ? 0.9 : 0.6);
+        }
       } else if (sim.targetKind === 'boss') {
         fx.hit(p.x, p.y, p.z, ZOMBIE_BLOOD, true);
         if (Math.random() < 0.15) audio.play('bossHit');
@@ -548,41 +560,81 @@ export class BattleScene extends BaseScene {
     }
   }
 
-  /** Where the army and a horde touch: blood and flashes along the front line. */
+  /**
+   * A group held at the front line: the front row fires point-blank across the gap, so the line
+   * flickers with muzzle flashes and the zombies there jerk and bleed. Nobody crosses the gap.
+   */
   private updateContact(dt: number): void {
     const sim = this.sim;
-    const fx = this.bw.fx;
+    const bw = this.bw;
+    const fx = bw.fx;
     for (const h of sim.hordes) {
-      if (!h.active || !h.engaged) continue;
-      this.contactAcc += dt * 18 * quality.particleScale;
+      if (!h.active || !h.held) continue;
+      this.contactAcc += dt * 22 * quality.particleScale;
       const r = sim.crowdRadius;
       const x0 = Math.max(h.x0, sim.crowdX - r);
       const x1 = Math.min(h.x1, sim.crowdX + r);
+      const muzzleZ = -(this.distance + r * 0.75);
+      const p = this.to;
       while (this.contactAcc >= 1) {
         this.contactAcc -= 1;
         const x = x0 + Math.random() * Math.max(10, x1 - x0);
-        const z = -(this.distance + CONTACT * 0.7);
-        fx.hit(x, 18 + Math.random() * 20, z, Math.random() < 0.7 ? ZOMBIE_BLOOD : HUMAN_BLOOD, Math.random() < 0.3);
+        const y = 22 + Math.random() * 10;
+        fx.flash(x, y, muzzleZ, 30);
+        const j = bw.zombies.target(h, p);
+        if (j < 0) {
+          fx.tracer(x, y, muzzleZ, x, y, muzzleZ - sim.frontLine + r, TRACER_TINTS[1], TRACER_WIDTH[1], 5200);
+          continue;
+        }
+        fx.tracer(x, y, muzzleZ, p.x, p.y, p.z, TRACER_TINTS[1], TRACER_WIDTH[1], 5200);
+        bw.zombies.hit(h, j, PUSH[1]);
+        fx.hit(p.x, p.y, p.z, ZOMBIE_BLOOD, Math.random() < 0.4);
+        if (Math.random() < 0.35) fx.spurt(p.x, p.y, p.z, ZOMBIE_BLOOD, 0, -1, 0.7);
+        audio.play('shot');
       }
     }
   }
 
-  /** Army lost to melee, barricades and the boss shows up as red numbers every quarter second. */
+  /** Army lost at the front line, to barricades and the boss shows up as red numbers every quarter second. */
   private updateLosses(dt: number): void {
     const power = this.sim.army.power;
     if (power < this.powerSeen) {
-      this.meleeLoss += this.powerSeen - power;
+      this.lossAcc += this.powerSeen - power;
       this.bw.crowd.hitFront();
     }
     this.powerSeen = power;
-    this.meleeTimer -= dt;
-    if (this.meleeTimer <= 0 && this.meleeLoss > 0) {
-      this.meleeTimer = 0.25;
+    this.lossTimer -= dt;
+    if (this.lossTimer <= 0 && this.lossAcc > 0) {
+      this.lossTimer = 0.25;
       // Beside the army size label, so it never covers it.
       const side = Math.random() < 0.5 ? -1 : 1;
-      this.fx.number(this.pill.x + side * 150, this.pill.y + 40, `-${this.meleeLoss}`, 0xff5a5a, 42);
-      this.meleeLoss = 0;
+      this.fx.number(this.pill.x + side * 150, this.pill.y + 40, `-${this.lossAcc}`, 0xff5a5a, 42);
+      this.lossAcc = 0;
     }
+  }
+
+  /** A whole group wiped out: how many, in a huge number crashing onto the screen where it died. */
+  private killSlam(h: SimHorde, atLine: boolean): void {
+    const bw = this.bw;
+    const world = bw.world;
+    const x = (h.x0 + h.x1) / 2;
+    const z = -h.z;
+    bw.fx.shock(x, z, 260 + Math.min(240, h.count0 * 2), 0xffc050, 0.35);
+    bw.fx.sparks(x, 30, z, 14, 0xffd080, 520, 0.6);
+    bw.fx.glow(x, 40, z, 260, 0xffb040, 0.2, 0.6);
+    world.shake(atLine ? 0.3 : 0.22);
+    world.punch(2.5);
+    this.hitStop = Math.max(this.hitStop, 45);
+    audio.play('smash', 0.8);
+    vibrate(30);
+    if (!world.project(x, 60, z, this.sp)) return;
+    // Above the army's own numbers, below the top bar.
+    const top = this.insets.top + 230;
+    const y = Math.max(top, Math.min(this.sp.y - 40, this.pill.y - 260));
+    const size = 104 + Math.min(56, Math.log10(h.count0 + 1) * 26);
+    const sx = Math.max(150, Math.min(viewWidth(this.scale) - 150, this.sp.x));
+    this.fx.slam(sx, y, formatCount(h.count0), 0xffd24a, size);
+    this.fx.popup('w_kill', sx, y + size * 0.62, 1.3, 0xffe9a8);
   }
 
   private finish(): void {

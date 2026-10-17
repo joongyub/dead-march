@@ -3,20 +3,26 @@ import { audio } from '../audio/Audio';
 import { quality } from '../core/quality';
 import type { SimHorde } from '../sim/BattleSim';
 import { ActorPool } from './ActorPool';
-import { UNIT_SCALE, type Vec3 } from './Crowd3D';
+import { MAX_CROWD, UNIT_SCALE, type Vec3 } from './Crowd3D';
 import type { Fx3D } from './Fx3D';
 import { zombieModel } from './models';
 
-/** Live zombies drawn at once, all hordes together. Army (90) + zombies stays within 200 units. */
-export const MAX_ZOMBIES = 110;
-const MAX_PER_HORDE = 32;
+/** Live zombies drawn at once, all hordes together. Army (90) + zombies stays within 250 units. */
+export const MAX_ZOMBIES = 160;
+/** Low-spec mode draws at most this many units in all (CLAUDE.md); zombies get what the army leaves. */
+const LOW_SPEC_UNITS = 120;
+const MAX_PER_HORDE = 48;
 const MAX_HORDES = 8;
+const KILLS_PER_FRAME = 3;
 const ZOMBIE_BLOOD = 0x6e0f22;
+/** Rotting skin and torn clothes, for the pieces that fly off. */
+const ZOMBIE_SKIN = 0x7d9a52;
+const ZOMBIE_CLOTH = 0x4a4660;
 const KINDS = ['walker', 'runner', 'exploder', 'brute'];
-const CAPACITY: Record<string, number> = { walker: 170, runner: 160, exploder: 70, brute: 60 };
+const CAPACITY: Record<string, number> = { walker: 240, runner: 220, exploder: 100, brute: 90 };
 const HEIGHT: Record<string, number> = { walker: 40, runner: 38, exploder: 42, brute: 62 };
-const SPACING: Record<string, number> = { walker: 36, runner: 36, exploder: 46, brute: 70 };
-const PER_HORDE: Record<string, number> = { walker: 30, runner: 26, exploder: 20, brute: 12 };
+const SPACING: Record<string, number> = { walker: 32, runner: 32, exploder: 42, brute: 64 };
+const PER_HORDE: Record<string, number> = { walker: 44, runner: 40, exploder: 28, brute: 18 };
 const WALK_RATE: Record<string, number> = { walker: 6, runner: 15, exploder: 6, brute: 4.5 };
 /** Hordes come into view this far ahead (the fog hides them farther out). */
 export const VIEW_AHEAD = 2600;
@@ -31,6 +37,9 @@ interface HordeVis {
   dz: Float32Array;
   ph: Float32Array;
   kb: Float32Array;
+  /** Stagger from the last hits (0..1): leans back, twists, arms flail; and which way it twists. */
+  st: Float32Array;
+  tw: Float32Array;
   /** Where the last big blast hit this horde, and how long ago (kills fly away from it). */
   blastX: number;
   blastZ: number;
@@ -59,6 +68,7 @@ export class Zombies3D {
         horde: null, pool: null, k: 0, alive: 0,
         slot: new Int16Array(MAX_PER_HORDE), dx: new Float32Array(MAX_PER_HORDE), dz: new Float32Array(MAX_PER_HORDE),
         ph: new Float32Array(MAX_PER_HORDE), kb: new Float32Array(MAX_PER_HORDE),
+        st: new Float32Array(MAX_PER_HORDE), tw: new Float32Array(MAX_PER_HORDE),
         blastX: 0, blastZ: 0, blastAge: 9,
       });
     }
@@ -91,6 +101,8 @@ export class Zombies3D {
     this.time += dt;
     this.crowdX = crowdX;
     this.crowdZ = -distance;
+    const over = this.liveCount - this.budget;
+    if (over > 0) this.trim(over);
     for (const h of hordes) {
       if (!h.active || h.z - distance > VIEW_AHEAD || h.z - distance < -300) continue;
       if (this.find(h)) continue;
@@ -103,31 +115,36 @@ export class Zombies3D {
       if (!h || !pool) continue;
       v.blastAge += dt;
       const target = h.count > 0 ? Math.max(1, Math.ceil((h.count / h.count0) * v.k)) : 0;
-      // Front zombies (low index) die first.
-      while (v.alive > target) {
+      // Front zombies (low index) die first, a few per frame: a shell wiping out a group ripples
+      // through it instead of every body (and its blood) landing on the same frame.
+      for (let n = 0; v.alive > target && n < KILLS_PER_FRAME; n++) {
         const j = v.k - v.alive;
         this.kill(v, j);
         v.alive--;
       }
 
-      const moving = h.aggro && !h.engaged;
-      const rate = moving ? WALK_RATE[h.kindId] ?? 6 : h.engaged ? 9 : 1.5;
-      const swing = moving ? 0.75 : h.engaged ? 0.35 : 0.1;
+      const moving = h.aggro && !h.held;
+      const rate = moving ? WALK_RATE[h.kindId] ?? 6 : h.held ? 10 : 1.5;
+      const swing = moving ? 0.75 : h.held ? 0.95 : 0.1;
       const exploder = h.kindId === 'exploder';
       for (let j = v.k - v.alive; j < v.k; j++) {
         const s = v.slot[j];
         if (s < 0) continue;
         const ph = v.ph[j];
         if (v.kb[j] > 0) v.kb[j] = Math.max(0, v.kb[j] - dt * 50);
-        pool.cycle[s] += dt * rate;
-        pool.swing[s] = swing;
+        const st = v.st[j] > 0 ? (v.st[j] = Math.max(0, v.st[j] - dt * 4.5)) : 0;
+        pool.cycle[s] += dt * (rate + st * 20);
+        pool.swing[s] = Math.min(1, swing + st * 0.8);
         const sway = Math.sin(this.time * 2.2 + ph) * 3;
-        const shake = h.engaged ? (Math.random() - 0.5) * 3 : 0;
-        pool.x[s] = v.dx[j] + sway + shake;
-        pool.z[s] = -(h.z + v.dz[j]) - v.kb[j];
-        pool.y[s] = moving ? Math.abs(Math.sin(pool.cycle[s])) * 2 : 0;
-        pool.yaw[s] = Math.PI + Math.sin(this.time * 1.3 + ph) * 0.18;
-        pool.pitch[s] = h.engaged ? 0.12 : 0;
+        // At the front line they lunge at the army again and again, but the gap is never crossed.
+        const lunge = h.held ? Math.max(0, Math.sin(this.time * 7 + ph * 3)) * 22 : 0;
+        pool.x[s] = v.dx[j] + sway + v.tw[j] * st * 6;
+        pool.z[s] = -(h.z + v.dz[j]) - v.kb[j] + lunge;
+        pool.y[s] = (moving ? Math.abs(Math.sin(pool.cycle[s])) * 2 : 0) + st * 3;
+        pool.yaw[s] = Math.PI + Math.sin(this.time * 1.3 + ph) * 0.18 + v.tw[j] * st * 0.6;
+        // Hits snap the body back; lunges throw it forward.
+        pool.pitch[s] = -st * 0.55 + lunge * 0.012;
+        pool.roll[s] = v.tw[j] * st * 0.3;
         const flash = Math.max(0, pool.flash[s] - dt * 14);
         // Exploders throb as they close in.
         pool.flash[s] = exploder && h.aggro ? Math.max(flash, 0.12 + Math.sin(this.time * 9 + ph) * 0.1) : flash;
@@ -137,6 +154,31 @@ export class Zombies3D {
     for (const p of this.pools.values()) {
       p.update(dt);
       p.flush();
+    }
+  }
+
+  /** How many zombies may be drawn now (fewer in low-spec mode, core/quality.ts). */
+  private get budget(): number {
+    return quality.unitScale < 1 ? LOW_SPEC_UNITS - Math.round(MAX_CROWD * quality.unitScale) : MAX_ZOMBIES;
+  }
+
+  /** Low-spec mode came on mid-battle: quietly drops back-row zombies until the drawn count fits. */
+  private trim(over: number): void {
+    let removed = true;
+    while (over > 0 && removed) {
+      removed = false;
+      for (const v of this.vis) {
+        if (over <= 0) break;
+        if (!v.pool || v.alive <= 1) continue;
+        const s = v.slot[v.k - 1];
+        if (s >= 0) {
+          v.pool.release(s);
+          over--;
+        }
+        v.k--;
+        v.alive--;
+        removed = true;
+      }
     }
   }
 
@@ -155,8 +197,7 @@ export class Zombies3D {
     }
     const pool = this.pools.get(h.kindId) ?? this.pools.get('walker')!;
     if (!v) return;
-    // Low-spec mode shows fewer zombies (core/quality.ts).
-    const budget = Math.round(MAX_ZOMBIES * quality.unitScale) - this.liveCount;
+    const budget = this.budget - this.liveCount;
     const k = Math.min(h.count, PER_HORDE[h.kindId] ?? 24, MAX_PER_HORDE, budget);
     if (k <= 0) return;
     v.horde = h;
@@ -175,6 +216,8 @@ export class Zombies3D {
       v.dz[j] = Math.random() * depth;
       v.ph[j] = Math.random() * Math.PI * 2;
       v.kb[j] = 0;
+      v.st[j] = 0;
+      v.tw[j] = 0;
     }
     for (let a = 1; a < k; a++) {
       const dz = v.dz[a];
@@ -212,10 +255,14 @@ export class Zombies3D {
     let dx = x - this.crowdX;
     let dz = z - this.crowdZ;
     let power = 1;
-    if (v.blastAge < 0.35) {
+    const blasted = v.blastAge < 0.35;
+    if (blasted) {
       dx = x - v.blastX;
       dz = z - v.blastZ;
       power = 1.8;
+    } else if (h.held) {
+      // Shot point-blank at the front line: thrown back hard.
+      power = 1.35;
     }
     const len = Math.sqrt(dx * dx + dz * dz) || 1;
     dx /= len;
@@ -230,9 +277,27 @@ export class Zombies3D {
     }
     audio.play('zombieDie', 0.7);
     const brute = h.kindId === 'brute';
+    const chest = (brute ? 40 : 26) * sc;
+    const head = (brute ? 58 : 38) * sc;
+    const roll = Math.random();
+    if (blasted) {
+      // Torn apart: limbs and rags fly off, the rest is thrown high and tumbles.
+      this.fx.chunks(x, chest, z, brute ? 6 : 4, ZOMBIE_SKIN, 380, brute ? 7 : 5, dx, dz, 1.6);
+      this.fx.chunks(x, chest, z, 2, ZOMBIE_CLOTH, 320, brute ? 7 : 5, dx, dz, 1.6);
+      this.fx.spurt(x, chest, z, ZOMBIE_BLOOD, dx, dz, 1.4);
+    } else if (!brute && roll < 0.3) {
+      // Head shot: the head pops off and blood fountains from the neck.
+      this.fx.chunks(x, head, z, 1, ZOMBIE_SKIN, 300, 7 * sc, dx * 0.4, dz * 0.4, 1.8);
+      this.fx.spurt(x, head - 4, z, ZOMBIE_BLOOD, 0, 0, 1.2);
+      power *= 0.7;
+    } else {
+      this.fx.spurt(x, chest, z, ZOMBIE_BLOOD, dx, dz, brute ? 1.3 : 0.9);
+    }
     const speed = (brute ? 180 : 300) * power * (0.8 + Math.random() * 0.5);
-    pool.kill(s, dx * speed + (Math.random() - 0.5) * 120, (brute ? 260 : 340) * power * (0.8 + Math.random() * 0.5), dz * speed, -(6 + Math.random() * 8), (Math.random() - 0.5) * 8);
-    this.fx.gore(x, (brute ? 40 : 26) * sc, z, ZOMBIE_BLOOD, brute ? 1.5 : 0.9, dx, dz);
+    const lift = (brute ? 260 : 340) * power * (0.8 + Math.random() * 0.5);
+    // Thrown backward, flipping head over heels, with a twist either way.
+    pool.kill(s, dx * speed + (Math.random() - 0.5) * 120, lift, dz * speed, -(6 + Math.random() * 8) * (blasted ? 1.6 : 1), (Math.random() - 0.5) * (blasted ? 16 : 8));
+    this.fx.gore(x, chest, z, ZOMBIE_BLOOD, brute ? 1.5 : 0.9, dx, dz);
   }
 
   private release(v: HordeVis): void {
@@ -264,14 +329,28 @@ export class Zombies3D {
     return j;
   }
 
-  /** A shot landed on zombie j: white flash, knocked back a step. */
+  /** Where a shell aimed at this horde comes down: a random live zombie anywhere in it. Returns false if none is drawn. */
+  spot(h: SimHorde, out: Vec3): boolean {
+    const v = this.find(h);
+    if (!v || v.alive === 0 || !v.pool) return false;
+    const s = v.slot[v.k - v.alive + Math.floor(Math.random() * v.alive)];
+    if (s < 0) return false;
+    out.x = v.pool.x[s];
+    out.y = 0;
+    out.z = v.pool.z[s];
+    return true;
+  }
+
+  /** A shot landed on zombie j: white flash, knocked back a step, staggers and twists away from it. */
   hit(h: SimHorde, j: number, push: number): void {
     const v = this.find(h);
     if (!v || !v.pool) return;
     const s = v.slot[j];
     if (s < 0) return;
     v.pool.flash[s] = 1;
-    v.kb[j] = Math.min(24, v.kb[j] + push);
+    v.kb[j] = Math.min(30, v.kb[j] + push);
+    v.st[j] = Math.min(1, v.st[j] + 0.35 + push * 0.04);
+    v.tw[j] = Math.random() < 0.5 ? -1 : 1;
   }
 
   /** A shell or explosion went off at (x, z) in this horde: the next kills are thrown away from it. */

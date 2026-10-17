@@ -6,6 +6,7 @@ import { Crowd3D } from './Crowd3D';
 import { Fx3D } from './Fx3D';
 import { Gates3D } from './Gates3D';
 import { Scenery } from './Scenery';
+import { Shells3D } from './Shells3D';
 import { BATTLE_VIEW, createWorld, type CameraView, type World3D } from './World3D';
 import { Zombies3D } from './Zombies3D';
 
@@ -27,6 +28,7 @@ export class BattleWorld {
   readonly gates: Gates3D;
   readonly barricades: Barricades3D;
   readonly boss: Boss3D;
+  readonly shells: Shells3D;
   private paradeDistance = 0;
   private nextBoom = 0;
 
@@ -39,6 +41,7 @@ export class BattleWorld {
     this.gates = new Gates3D(scene, this.fx);
     this.barricades = new Barricades3D(scene, this.fx);
     this.boss = new Boss3D(scene, this.fx);
+    this.shells = new Shells3D(this.fx, this.zombies, world);
   }
 
   /** Fog (and sky) color for a stage. */
@@ -53,6 +56,7 @@ export class BattleWorld {
     this.gates.reset();
     this.barricades.reset();
     this.boss.reset(sim.boss);
+    this.shells.reset();
     this.scenery.begin(stage);
     this.world.setFogColor(this.fogFor(stage));
     this.world.setView(BATTLE_VIEW);
@@ -68,6 +72,7 @@ export class BattleWorld {
     this.gates.reset();
     this.barricades.reset();
     this.boss.clear();
+    this.shells.reset();
     this.paradeDistance = 0;
     this.nextBoom = 2;
     this.world.setView(PARADE_VIEW);
@@ -116,6 +121,7 @@ export class BattleWorld {
     this.gates.update(dt, sim.gates, distance);
     this.barricades.update(dt, sim.barricades, distance);
     this.boss.update(dt);
+    this.shells.update(dt);
     fx.end(dt, this.world.camera.position.z + 200);
   }
 }

@@ -386,7 +386,7 @@ async function main() {
     [`scene switch work + 160ms fade <= 300ms (slowest work ${slowestSwitch}ms)`]: slowestSwitch + 160 <= 300,
     'logic <= 4ms (stress, 5000+ army)': (results.stress?.summary.logicMsAvg ?? Infinity) <= 4,
     'logic <= 4ms (2000 sprites)': (results.bench2000?.summary.logicMsAvg ?? Infinity) <= 4,
-    'unit sprites <= 200 (stress)': unitSprites <= 200,
+    'unit sprites <= 250 (stress)': unitSprites <= 250,
     'draw calls <= 20': measured.length === 6 && measured.every((m) => m.drawCallsAvg <= 20),
     'auto low-spec: slow frames -> 75% canvas, <= 120 unit sprites, remembered':
       results.lowSpec?.low === true &&

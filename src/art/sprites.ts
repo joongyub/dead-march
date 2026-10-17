@@ -938,6 +938,7 @@ function wordFrames(): FrameSpec[] {
     word('w_merge', t('word.merge'), 64, 200, 84),
     word('w_split', t('word.split'), 64, 200, 84),
     word('w_smash', t('word.smash'), 64, 200, 84),
+    word('w_kill', t('word.kill'), 60, 240, 80),
     word('w_boss', t('word.boss'), 72, 360, 96),
     word('w_win', t('word.win'), 96, 280, 120),
     word('w_lose', t('word.lose'), 96, 280, 120),

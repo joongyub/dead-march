@@ -9,7 +9,7 @@
 ## 기술 스택
 
 - Phaser 3.90 (WebGL, 캔버스 대체) + TypeScript(strict) + Vite
-- 전투 화면은 3D: Three.js 0.186이 Phaser와 같은 WebGL2 화면(`world3d/context.ts`)에 먼저 그리고, Phaser가 그 위에 숫자·HUD를 그린다. WebGL2가 없는 기기는 전투 대신 안내 문구가 뜬다. 로비·피난처는 아직 2D.
+- 전투 화면은 3D: Three.js 0.186이 Phaser와 같은 WebGL2 화면(`world3d/context.ts`)에 먼저 그리고, Phaser가 그 위에 숫자·HUD를 그린다. 로비 뒤 행군 장면(`BattleWorld.beginParade`)과 피난처(`ShelterWorld`)도 3D다. WebGL2가 없는 기기는 전투 대신 안내 문구가 뜨고, 로비는 그린 배경, 피난처는 이름표만 나온다.
 - 세로 화면. 설계 해상도 720×1280, `Scale.EXPAND`로 긴 화면은 높이가 늘어난다. 위치는 항상 `layout(width, height)`에서 현재 크기로 계산한다(`BaseScene`).
 - 배포: `main`에 머지되면 GitHub Actions가 GitHub Pages로 배포. PR마다 타입 검사, 규칙 검사, 빌드와 성능 검사(흐름 검사, 30판 누수 검사, CPU 4배 느린 조건 측정)가 돌고, 예산을 넘으면 실패한다.
 - 안드로이드 앱: Capacitor 8 (`android/`, `capacitor.config.ts`, 앱 ID `com.joongyub.deadmarch`). 세로 고정, 전체 화면(`MainActivity`가 시스템 바를 숨김), 노치 여백은 앱이 넣는 `--safe-area-inset-*` CSS 변수로 받는다. 웹 빌드를 그대로 싣기 때문에 경로는 상대 경로(`base: './'`)를 유지한다.
@@ -62,9 +62,10 @@ src/
   art/                 그림을 코드로 그려 아틀라스 한 장 + 숫자 비트맵 폰트로 만듦 (로비 배경·로고는 lobbyArt.ts)
                        캔버스 텍스처는 canvasTexture.ts로 등록한다 (Phaser addCanvas는 픽셀을 다시 읽어 수 초 걸림)
   audio/               효과음과 음악을 Web Audio로 합성 (파일 없음). 동시 8개, 같은 소리 최소 간격
-  world3d/             3D 전투 (Three.js). 모델은 코드로 만든 상자·원기둥(models.ts), 걷기·흔들기는 셰이더(actorMaterial.ts),
-                       ActorPool(살아 있는 유닛 + 날아가는 시체), Fx3D(불꽃·피·폭발·파편), 도로와 건물(Scenery), 카메라 흔들림(World3D)
-                       따로 내려받는 조각이라 로비에서 미리 받는다(registry.ts). 이 조각 밖에서는 three를 import하지 않는다(layout.ts처럼)
+  world3d/             3D 세계 (Three.js). 모델은 코드로 만든 상자·원기둥(models.ts, 피난처는 shelterModels.ts), 걷기·흔들기는 셰이더(actorMaterial.ts),
+                       ActorPool(살아 있는 유닛 + 날아가는 시체), Fx3D(불꽃·피·폭발·파편·연기), 도로와 건물(Scenery), 하늘(Sky), 카메라 흔들림(World3D)
+                       BattleWorld(전투 + 로비 행군), ShelterWorld(피난처 마당, 건물 15모양, 모닥불, 생존자)
+                       따로 내려받는 조각이라 타이틀에서 미리 받고 둘 다 예열한다(registry.ts의 load3D). 이 조각 밖에서는 three를 import하지 않는다(layout.ts처럼)
   battle/              전투 화면의 2D 층 (세계 위치에 붙는 숫자 WorldLabels, 효과, HUD, 1스테이지 튜토리얼)
   i18n/                화면 문구 ko.ts / en.ts와 t('키'). 기기 언어로 자동 선택, 설정에서 바꿀 수 있음
   game/                저장(버전, 백업, 마이그레이션)과 보상/진행
@@ -108,8 +109,8 @@ docs/                  android.md(앱 출시 안내), monetization.md(광고·�
 - 저장 형식에서 기존 필드의 모양이나 뜻을 바꾸면 `SAVE_VERSION`을 올리고 `MIGRATIONS`에 이전 버전 변환 함수를 넣는다. 기본값이 있는 새 필드는 `freshSave`와 정규화(normalize)에 넣는 것으로 충분하다. 저장소 접근은 `platform/storage.ts` 한 곳(앱에서는 Capacitor 저장소로 교체).
 - 튜토리얼은 손가락 + 한 줄 글(`ui/Coach.ts`)만 쓰고, 배운 단계는 `save.data.tutorial`에 남긴다.
 - 화면 전환은 0.3초 이내: 장면 `create()` 작업 + 0.16초 페이드. 큰 그림은 처음 한 번만 그리고 텍스처를 재사용한다.
-- 3D 세계는 게임 전체에 하나(`getBattleWorld`)이고 전투마다 `begin()`으로 초기화한다. 전투 중에 지오메트리·재질·텍스처를 새로 만들지 않는다(누수 검사가 Three.js 자원 수도 본다). 새 재질을 넣으면 `warmUp()`이 미리 컴파일하는지 확인한다(처음 보일 때 멈칫한다).
-- 3D 좌표: x = 전투 규칙의 x(도로 60~660), z = -거리, y는 위. 화면 글자 위치는 `World3D.project()`로 구한다.
+- 3D 세계는 종류마다 게임 전체에 하나(`battleWorld()`, `shelterWorld()`)이고, 렌더러 하나를 같이 쓴다. 전투마다 `begin()`(로비는 `beginParade()`)으로 초기화한다. 전투 중에 지오메트리·재질·텍스처를 새로 만들지 않는다(누수 검사가 Three.js 자원 수도 본다). 새 재질을 넣으면 `warmUp()`이 미리 컴파일하는지 확인한다(처음 보일 때 멈칫한다).
+- 3D 좌표: x = 전투 규칙의 x(도로 60~660), z = -거리, y는 위. 화면 글자 위치는 `World3D.project()`로 구한다. `layout()`에서는 먼저 `world.sync()`로 카메라를 맞춘 뒤 투영한다(피난처 건물의 터치 영역과 이름표는 `ShelterWorld.rect()`).
 - 매 프레임 `setDepth`를 부르지 않는다. 깊이를 바꾸면 장면 전체가 다시 정렬된다. 순서가 실제로 바뀔 때만 바꾸고, 블렌드 모드가 다른 것끼리는 깊이 대역을 나눈다. 위치·크기·투명도도 값이 바뀔 때만 쓰고, `BitmapText` 너비는 글자가 바뀔 때만 잰다([docs/perf-fixes.md](docs/perf-fixes.md)).
 - 외부 그림·소리·글꼴을 넣으면 `CREDITS.md`에 출처와 라이선스를 적는다. 상업적 이용이 안 되는 자료는 넣지 않는다.
 - 의존성 버전은 고정(`^` 없이)하고, 새 라이브러리는 용량과 성능 영향을 확인한 뒤 추가한다.

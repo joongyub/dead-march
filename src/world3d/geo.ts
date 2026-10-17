@@ -61,6 +61,9 @@ export class GeoBuilder {
   private readonly col: number[] = [];
   private readonly limb: number[] = [];
 
+  /** `light` scales the sunlight on everything but glowing parts (below 1 for dusk scenes). */
+  constructor(private readonly light = 1) {}
+
   /**
    * One triangle. The corners can come in either order: the face is turned to point away from `center`
    * (the middle of the convex part it belongs to), which fixes both back-face culling and the shading.
@@ -79,7 +82,7 @@ export class GeoBuilder {
       p1 = c;
       p2 = b;
     }
-    const s = opts.glow ? 1 : shadeFor(n);
+    const s = opts.glow ? 1 : shadeFor(n) * this.light;
     this.pos.push(a.x, a.y, a.z, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
     const r = Math.min(1, rgb.r * s);
     const g = Math.min(1, rgb.g * s);

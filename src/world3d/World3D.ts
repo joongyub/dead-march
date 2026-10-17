@@ -4,6 +4,7 @@ import { Depth } from '../battle/depth';
 import { quality } from '../core/quality';
 import { flags } from '../platform/flags';
 import { sharedContext } from './context';
+import { Sky } from './Sky';
 
 /** Screen position of a world point in game units, and how many game units one world unit spans there. */
 export interface ScreenPoint {
@@ -15,24 +16,51 @@ export interface ScreenPoint {
 // Colors are authored as plain sRGB hex values and written to the screen as they are.
 THREE.ColorManagement.enabled = false;
 
-/** The camera sits this far behind and above the army and looks this far ahead of it. */
-const CAM_BACK = 470;
-const CAM_UP = 640;
-const LOOK_AHEAD = 560;
-/** Horizontal field of view stays fixed, so taller phones see more road instead of a narrower one. */
-const H_FOV = 40;
-/** How much the camera follows the army sideways (0 = fixed on the road center). */
-const FOLLOW_X = 0.5;
+/** Where the camera sits relative to the point it follows (x, 0, -distance). */
+export interface CameraView {
+  /** Behind (+z) and above the followed point. */
+  back: number;
+  up: number;
+  /** Looks at a point this far ahead of it, at this height. */
+  ahead: number;
+  lookY: number;
+  /** Horizontal field of view in degrees; it stays fixed, so taller phones see more ground instead of less width. */
+  hFov: number;
+  /** How much the camera follows sideways moves (0 = stays over x = 360). */
+  followX: number;
+}
+
+/** Battle: high behind the army, looking down the road. */
+export const BATTLE_VIEW: CameraView = { back: 470, up: 640, ahead: 560, lookY: 0, hFov: 40, followX: 0.5 };
 const ROAD_CENTER = 360;
 
 const tmp = new THREE.Vector3();
 
+let sharedRenderer: THREE.WebGLRenderer | null = null;
+
+/** One Three.js renderer on Phaser's own WebGL2 context, shared by every 3D world. */
+function rendererFor(game: Phaser.Game, gl: WebGL2RenderingContext): THREE.WebGLRenderer {
+  if (sharedRenderer) return sharedRenderer;
+  // Phaser leaves these on after its uploads; Three.js creates 3D textures on start, which refuse them.
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  const r = new THREE.WebGLRenderer({ canvas: game.canvas, context: gl, antialias: true });
+  r.autoClear = false;
+  r.setPixelRatio(1);
+  r.outputColorSpace = THREE.LinearSRGBColorSpace;
+  r.info.autoReset = true;
+  // Reading shader logs waits on the GPU; only worth it while developing.
+  r.debug.checkShaderErrors = flags.debug || import.meta.env.DEV;
+  sharedRenderer = r;
+  return r;
+}
+
 /**
- * Three.js world drawn inside Phaser's own WebGL2 context, under the 2D HUD. One renderer, one
- * camera and one scene for the whole game; battles add and reset their objects instead of creating
- * new ones, so nothing leaks between battles and shaders compile once.
+ * A Three.js scene and camera drawn inside Phaser's own WebGL2 context, under the 2D HUD. Each
+ * world (battle, shelter) is built once for the whole game; screens reset its objects instead of
+ * creating new ones, so nothing leaks between visits and shaders compile once.
  *
- * Phaser draws the scene through an Extern game object at the bottom of the battle's display list:
+ * Phaser draws the scene through an Extern game object at the bottom of the scene's display list:
  * the camera background (sky color) first, then this world, then the HUD on top.
  */
 export class World3D {
@@ -40,6 +68,8 @@ export class World3D {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(60, 9 / 16, 30, 7000);
   readonly fog: THREE.Fog;
+  readonly sky: Sky;
+  private view = BATTLE_VIEW;
   private width = 1;
   private height = 1;
   private readonly viewProj = new THREE.Matrix4();
@@ -53,18 +83,11 @@ export class World3D {
   shakeEnabled = true;
 
   constructor(private readonly game: Phaser.Game, gl: WebGL2RenderingContext) {
-    // Phaser leaves these on after its uploads; Three.js creates 3D textures on start, which refuse them.
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-    this.renderer = new THREE.WebGLRenderer({ canvas: game.canvas, context: gl, antialias: true });
-    this.renderer.autoClear = false;
-    this.renderer.setPixelRatio(1);
-    this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-    this.renderer.info.autoReset = true;
-    // Reading shader logs waits on the GPU; only worth it while developing.
-    this.renderer.debug.checkShaderErrors = flags.debug || import.meta.env.DEV;
+    this.renderer = rendererFor(game, gl);
     this.fog = new THREE.Fog(0x9a7a80, 1300, 3400);
     this.scene.fog = this.fog;
+    this.sky = new Sky(this.scene, 3500);
+    this.sky.setColor(this.fog.color);
     this.scene.matrixWorldAutoUpdate = true;
   }
 
@@ -78,6 +101,14 @@ export class World3D {
 
   setFogColor(hex: number): void {
     this.fog.color.setHex(hex);
+    this.sky.setColor(this.fog.color);
+  }
+
+  /** Changes the camera placement (battle, lobby parade); takes effect on the next follow(). */
+  setView(view: CameraView): void {
+    if (view === this.view) return;
+    this.view = view;
+    if (this.height > 1) this.resize(this.width, this.height);
   }
 
   /** Adds trauma (0..1); bigger hits shake harder, several in a row stack up to the limit. */
@@ -94,7 +125,8 @@ export class World3D {
 
   /** Places the camera behind the army at road position (crowdX, distance). */
   follow(dt: number, crowdX: number, distance: number): void {
-    const targetX = ROAD_CENTER + (crowdX - ROAD_CENTER) * FOLLOW_X;
+    const v = this.view;
+    const targetX = ROAD_CENTER + (crowdX - ROAD_CENTER) * v.followX;
     this.camX += (targetX - this.camX) * Math.min(1, dt * 6);
     let sx = 0;
     let sy = 0;
@@ -109,10 +141,11 @@ export class World3D {
       this.trauma = Math.max(0, this.trauma - dt * 1.6);
     }
     const z = -distance;
-    this.camera.position.set(this.camX + sx, CAM_UP + sy, z + CAM_BACK);
-    tmp.set(this.camX + (crowdX - this.camX) * 0.25 + sx * 0.5, 0, z - LOOK_AHEAD);
+    this.camera.position.set(this.camX + sx, v.up + sy, z + v.back);
+    tmp.set(this.camX + (crowdX - this.camX) * 0.25 + sx * 0.5, v.lookY, z - v.ahead);
     this.camera.lookAt(tmp);
     if (rz !== 0) this.camera.rotateZ(rz);
+    this.sky.follow(this.camX, z + v.back);
     if (this.fovKick > 0.01) {
       this.fovKick *= Math.exp(-dt * 7);
     } else {
@@ -127,11 +160,18 @@ export class World3D {
     this.viewProj.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
   }
 
+  /** Makes project() match the current canvas before the first frame is drawn (layouts). */
+  sync(crowdX: number, distance: number): void {
+    const canvas = this.game.canvas;
+    if (canvas.width !== this.width || canvas.height !== this.height) this.resize(canvas.width, canvas.height);
+    this.follow(0, crowdX, distance);
+  }
+
   /** Snaps the camera into place (start of a battle). */
   reset(crowdX: number, distance: number): void {
     this.trauma = 0;
     this.fovKick = 0;
-    this.camX = ROAD_CENTER + (crowdX - ROAD_CENTER) * FOLLOW_X;
+    this.camX = ROAD_CENTER + (crowdX - ROAD_CENTER) * this.view.followX;
     this.follow(0, crowdX, distance);
   }
 
@@ -140,7 +180,7 @@ export class World3D {
     this.width = width;
     this.height = height;
     const aspect = width / height;
-    this.baseFov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(H_FOV / 2)) / aspect));
+    this.baseFov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.view.hFov / 2)) / aspect));
     this.camera.aspect = aspect;
     this.camera.fov = this.baseFov + this.fovKick;
     this.camera.updateProjectionMatrix();
@@ -205,11 +245,8 @@ export class World3D {
   }
 }
 
-let world: World3D | null = null;
-
-/** The one 3D world, or null on devices without WebGL2. */
-export function getWorld(game: Phaser.Game): World3D | null {
+/** A new 3D world on the shared renderer, or null on devices without WebGL2. */
+export function createWorld(game: Phaser.Game): World3D | null {
   const gl = sharedContext();
-  if (!world && gl) world = new World3D(game, gl);
-  return world;
+  return gl ? new World3D(game, gl) : null;
 }

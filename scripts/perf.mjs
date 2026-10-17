@@ -1,5 +1,5 @@
-// CPU cost of battles on a simulated low-end phone: Chrome's CPU throttling (4× and 6× slower) on
-// stages 1, 10, 20 and the stress stage. Writes docs/perf.md.
+// CPU cost on a simulated low-end phone: Chrome's CPU throttling (4× and 6× slower) on stages 1, 10,
+// 20, the stress stage, and the two calm 3D screens (lobby parade, shelter). Writes docs/perf.md.
 //
 // The headless browser has no GPU, so instead of trusting its frame rate this drives the game loop by
 // hand: every frame is one game.step() of 1/60 s, timed in JavaScript (game logic + preparing the draw
@@ -7,7 +7,8 @@
 // with the next frame's CPU work, so each timed frame starts after the previous one has been drawn.
 //
 // Each battle is sampled in three windows of WINDOW frames: the start, the middle of the road, and
-// the boss fight (the simulation skips ahead between windows).
+// the boss fight (the simulation skips ahead between windows). The lobby and shelter are sampled for
+// the same number of frames in one go; they draw at 30 fps on a phone, but each frame is timed here.
 //
 // Usage: npm run build && npm run perf [-- --quick] [-- --profile]   (tsx, because levelCurve.ts is TypeScript)
 //   --quick    4× only, fewer frames (CI)
@@ -34,11 +35,15 @@ const SCENARIOS = [
   { name: '스테이지 20', data: { stage: 20, modifiers: expectedModifiers(20) } },
   { name: '스트레스 (병력 5,000)', data: { stress: true } },
   { name: '스트레스, 저사양 모드', data: { stress: true }, lowSpec: true },
+  { name: '로비 (행군)', scene: 'Lobby' },
+  { name: '피난처', scene: 'Shelter' },
 ];
+/** Mid-game progress for the lobby and shelter: a bigger parade and mid-tier buildings. */
+const MID_GAME = { unlocked: 14, buildings: { wall: 14, armory: 9, garage: 7, farm: 12, radio: 5 } };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function openBattle(page, base, scenario) {
+async function openScene(page, base, scenario) {
   await page.goto(`${base}?debug=1`);
   await page.waitForFunction(() => window.__dm?.monitor && window.__dm.game.scene.isActive('Title'), null, { timeout: 30000 });
   await page.evaluate((low) => {
@@ -50,8 +55,21 @@ async function openBattle(page, base, scenario) {
     setLowSpec(low);
     game.scene.stop('Title');
   }, !!scenario.lowSpec);
-  await page.evaluate((data) => window.__dm.game.scene.start('Battle', data), scenario.data);
-  await page.waitForFunction(() => window.__dm.game.scene.isActive('Battle') && window.__battle, null, { timeout: 30000 });
+  if (scenario.scene) {
+    await page.evaluate(
+      ({ key, mid }) => {
+        const { game, save } = window.__dm;
+        save.data.unlocked = mid.unlocked;
+        save.data.buildings = mid.buildings;
+        game.scene.start(key);
+      },
+      { key: scenario.scene, mid: MID_GAME },
+    );
+    await page.waitForFunction((key) => window.__dm.game.scene.isActive(key), scenario.scene, { timeout: 30000 });
+  } else {
+    await page.evaluate((data) => window.__dm.game.scene.start('Battle', data), scenario.data);
+    await page.waitForFunction(() => window.__dm.game.scene.isActive('Battle') && window.__battle, null, { timeout: 30000 });
+  }
   await sleep(500);
 }
 
@@ -59,20 +77,22 @@ async function openBattle(page, base, scenario) {
 async function sampleFrames(page, frames) {
   return page.evaluate((n) => {
     const { game, greedySide } = window.__dm;
-    const battle = window.__battle;
+    const battle = game.scene.isActive('Battle') ? window.__battle : null;
     const gl = game.renderer.gl;
     const pixel = new Uint8Array(4);
     const times = [];
     let t = performance.now();
-    for (let i = 0; i < n && !battle.sim.finished; i++) {
+    for (let i = 0; i < n && !battle?.sim.finished; i++) {
       // Wait for the software GPU to finish the previous frame outside the timed part (reading a pixel
       // waits; finish() does not in Chrome): otherwise its pixel work queues up and the next call
       // that waits on the GPU blocks some later frame for seconds.
       gl?.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
-      const sim = battle.sim;
-      let next = null;
-      for (const g of sim.gates) if (!g.passed && g.z > sim.distance && (!next || g.z < next.z)) next = g;
-      if (next && next.z - sim.distance < 700) battle.targetX = greedySide(sim, next) === 0 ? 210 : 510;
+      if (battle) {
+        const sim = battle.sim;
+        let next = null;
+        for (const g of sim.gates) if (!g.passed && g.z > sim.distance && (!next || g.z < next.z)) next = g;
+        if (next && next.z - sim.distance < 700) battle.targetX = greedySide(sim, next) === 0 ? 210 : 510;
+      }
       t += 1000 / 60;
       const t0 = performance.now();
       game.step(t, 1000 / 60);
@@ -100,21 +120,27 @@ async function skipTo(page, where) {
 async function run(page, base, scenario, throttle) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
-  await openBattle(page, base, scenario);
+  await openScene(page, base, scenario);
   await page.evaluate(() => window.__dm.game.loop.sleep());
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: throttle });
   await sampleFrames(page, 30); // warm-up (JIT)
   await page.evaluate(() => window.__dm.monitor.reset());
   const times = [];
-  times.push(...(await sampleFrames(page, WINDOW)));
-  await skipTo(page, 'middle');
-  times.push(...(await sampleFrames(page, WINDOW)));
-  await skipTo(page, 'boss');
-  times.push(...(await sampleFrames(page, WINDOW)));
+  if (scenario.scene) {
+    times.push(...(await sampleFrames(page, WINDOW * 3)));
+  } else {
+    times.push(...(await sampleFrames(page, WINDOW)));
+    await skipTo(page, 'middle');
+    times.push(...(await sampleFrames(page, WINDOW)));
+    await skipTo(page, 'boss');
+    times.push(...(await sampleFrames(page, WINDOW)));
+  }
   const summary = await page.evaluate(() => window.__dm.monitor.summary());
+  // Units drawn: the battle's army and horde, or the lobby's parade (the shelter has a fixed dozen).
   const sprites = await page.evaluate(() => {
-    const d = window.__battle.debugInfo;
-    return d.units + d.zombies;
+    const { game } = window.__dm;
+    if (game.scene.isActive('Battle')) return window.__battle.debugInfo.units + window.__battle.debugInfo.zombies;
+    return game.scene.isActive('Lobby') ? game.scene.getScene('Lobby').bw?.crowd.count ?? 0 : '-';
   });
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   await cdp.send('HeapProfiler.collectGarbage');
@@ -139,7 +165,7 @@ async function run(page, base, scenario, throttle) {
 /** CPU profile of the stress stage at 4×: self time per function, top 15. */
 async function profile(page, base) {
   const cdp = await page.context().newCDPSession(page);
-  await openBattle(page, base, SCENARIOS[3]);
+  await openScene(page, base, SCENARIOS[3]);
   await page.evaluate(() => window.__dm.game.loop.sleep());
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
   await sampleFrames(page, 30);
@@ -204,7 +230,7 @@ async function profile(page, base) {
   ].join('\n');
 }
 
-const fmt = (x, d = 2) => x.toFixed(d);
+const fmt = (x, d = 2) => (typeof x === 'number' ? x.toFixed(d) : String(x));
 
 async function main() {
   await mkdir('artifacts', { recursive: true });
@@ -267,6 +293,7 @@ async function main() {
   lines.push('');
   lines.push('- 헤드리스 브라우저에는 GPU가 없어서 화면 주사율 대신 한 프레임(1/60초)씩 직접 돌리며 자바스크립트 시간(게임 로직 + 그리기 준비)을 잽니다. GPU가 픽셀을 칠하는 시간은 빠져 있고(프레임마다 앞 프레임 그리기가 끝나길 기다린 뒤에 잽니다), 그건 휴대폰의 `?debug=1`로 봅니다. 3D 전투는 Three.js가 같은 WebGL 화면에 먼저 그리고 Phaser가 글자와 HUD를 위에 그립니다.');
   lines.push(`- 전투마다 시작, 도로 중간, 보스전에서 ${WINDOW}프레임씩 잽니다. 스테이지 10, 20은 그 시점에 예상되는 피난처 강화를 적용했습니다.`);
+  lines.push(`- 로비(3D 행군)와 피난처는 14스테이지까지 연 중반 진행 상태로 ${WINDOW * 3}프레임을 잽니다. 휴대폰에서는 30fps로 그리지만 여기서는 한 프레임씩 잽니다. 로비의 유닛 수는 행군하는 병력입니다.`);
   lines.push('- 1% 저점 = 가장 느린 1% 프레임의 시간(99번째 백분위). 예산은 한 프레임 16.6ms, 로직 4ms, 드로우 콜 20회, 메모리 250MB.');
   lines.push('- 측정용 조종은 게이트만 고르고 장애물은 피하지 않아서, 스테이지 20은 도로 중간 전에 무리가 전멸해 시작 구간만 잽니다(프레임 수가 적어 1% 저점이 가장 느린 3프레임으로 정해집니다).');
   lines.push('- CI(`--quick`)는 4배 조건에서 평균 프레임 CPU 8ms, 로직 4ms, 드로우 콜 20회를 넘으면 실패합니다.');

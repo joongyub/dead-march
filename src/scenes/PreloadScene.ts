@@ -6,7 +6,7 @@ import { lowSpecWanted, setLowSpec } from '../core/quality';
 import { save } from '../game/save';
 import { resolveLang, setLang, t } from '../i18n';
 import { initPlatform } from '../platform/app';
-import { loadBattleWorld } from '../world3d/registry';
+import { load3D } from '../world3d/registry';
 
 /** Loading screen: draws the battle atlas, loads the save, then opens the lobby. */
 export class PreloadScene extends Phaser.Scene {
@@ -41,7 +41,7 @@ export class PreloadScene extends Phaser.Scene {
         setLang(resolveLang(save.data.settings.lang));
         setLowSpec(this.game, lowSpecWanted(save.data.settings.lowSpec, save.data.device.lowSpec));
         buildAtlas(this);
-        void loadBattleWorld(this.game);
+        void load3D(this.game);
         audio.setEnabled(save.data.settings.sound);
         // Sounds render in the background; the lobby does not wait for them.
         void audio.preload();

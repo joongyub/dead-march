@@ -49,10 +49,14 @@ interface FloatText {
  * Effect sprites: a normal-blend pool and an additive pool (glows, rings). Each pool keeps one blend mode
  * and depth for good, because changing a sprite's depth makes the scene re-sort its whole display list.
  */
-const MAX_FX_NORMAL = 125;
-const MAX_FX_ADD = 55;
-const MAX_DECALS = 48;
-const MAX_TEXTS = 12;
+export interface EffectPools {
+  normal: number;
+  add: number;
+  decals: number;
+  texts: number;
+}
+
+const DEFAULT_POOLS: EffectPools = { normal: 125, add: 55, decals: 48, texts: 12 };
 const DECAL_LIFE = 5;
 const TEXT_LIFE = 0.9;
 
@@ -70,6 +74,10 @@ export class Effects {
   private textCursor = 0;
   /** Multiplies how many particles bursts spawn (low-spec mode halves it). */
   density = 1;
+  private readonly maxNormal: number;
+  private readonly maxAdd: number;
+  private readonly maxDecals: number;
+  private readonly maxTexts: number;
 
   constructor(
     scene: Phaser.Scene,
@@ -78,13 +86,18 @@ export class Effects {
     /** Additive effects sit on their own depth so they render as one batch after the normal ones. */
     addDepth: number,
     textDepth: number,
+    pools: EffectPools = DEFAULT_POOLS,
   ) {
-    for (let i = 0; i < MAX_DECALS; i++) {
+    this.maxNormal = pools.normal;
+    this.maxAdd = pools.add;
+    this.maxDecals = pools.decals;
+    this.maxTexts = pools.texts;
+    for (let i = 0; i < this.maxDecals; i++) {
       const img = scene.add.image(0, 0, ATLAS, 'blood').setVisible(false).setDepth(groundDepth);
       this.decals.push({ img, active: false, x: 0, z: 0, life: 0 });
     }
-    for (let i = 0; i < MAX_FX_NORMAL + MAX_FX_ADD; i++) {
-      const add = i >= MAX_FX_NORMAL;
+    for (let i = 0; i < this.maxNormal + this.maxAdd; i++) {
+      const add = i >= this.maxNormal;
       const img = scene.add
         .image(0, 0, ATLAS, 'spark')
         .setVisible(false)
@@ -92,7 +105,7 @@ export class Effects {
         .setBlendMode(add ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL);
       this.fx.push({ img, active: false, x: 0, y: 0, vx: 0, vy: 0, drag: 0, life: 0, max: 1, s0: 1, s1: 1, a0: 1, a1: 0, vr: 0, curve: Curve.Linear, fresh: false });
     }
-    for (let i = 0; i < MAX_TEXTS; i++) {
+    for (let i = 0; i < this.maxTexts; i++) {
       const text = scene.add.bitmapText(0, 0, NUM_FONT, '', 40).setOrigin(0.5).setVisible(false).setDepth(textDepth);
       this.texts.push({ text, active: false, x: 0, y: 0, life: 0 });
     }
@@ -107,8 +120,8 @@ export class Effects {
 
   private nextFx(add: boolean): Fx {
     // Round-robin within the pool: when all are busy the oldest gets reused, invisible in a busy fight.
-    const base = add ? MAX_FX_NORMAL : 0;
-    const size = add ? MAX_FX_ADD : MAX_FX_NORMAL;
+    const base = add ? this.maxNormal : 0;
+    const size = add ? this.maxAdd : this.maxNormal;
     const cursor = add ? this.addCursor : this.normalCursor;
     let pick = cursor;
     for (let i = 0; i < size; i++) {
@@ -209,8 +222,9 @@ export class Effects {
 
   /** Blood or debris left on the road; scrolls with the track. */
   decal(trackX: number, trackZ: number, tint: number, scale: number): void {
+    if (this.maxDecals === 0) return;
     const d = this.decals[this.decalCursor];
-    this.decalCursor = (this.decalCursor + 1) % MAX_DECALS;
+    this.decalCursor = (this.decalCursor + 1) % this.maxDecals;
     d.active = true;
     d.x = trackX;
     d.z = trackZ;
@@ -220,8 +234,12 @@ export class Effects {
 
   /** Floating number like "+20" or "-35". */
   number(x: number, y: number, value: string, tint: number, size = 44): void {
+    // Numbers still floating at the same spot move up a line instead of overlapping the new one.
+    for (const o of this.texts) {
+      if (o.active && Math.abs(o.x - x) < 160 && Math.abs(o.y - y) < size) o.y -= size;
+    }
     const t = this.texts[this.textCursor];
-    this.textCursor = (this.textCursor + 1) % MAX_TEXTS;
+    this.textCursor = (this.textCursor + 1) % this.maxTexts;
     t.active = true;
     t.x = x;
     t.y = y;

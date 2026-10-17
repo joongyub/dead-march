@@ -54,6 +54,11 @@ export class PerfMonitor {
   private winRenderMs = 0;
   private winDrawCalls = 0;
   private winStartedAt = performance.now();
+  /**
+   * How often the overlay numbers refresh. The perf script drives frames by hand far slower than real
+   * time and turns this off, so the overlay's own cost is not counted many times per frame.
+   */
+  snapshotIntervalMs = SNAPSHOT_INTERVAL_MS;
 
   // Ring buffers for summary(), preallocated so measuring does not allocate per frame.
   private readonly frameHist = new Float32Array(HISTORY);
@@ -150,7 +155,7 @@ export class PerfMonitor {
       if (this.histCount < HISTORY) this.histCount++;
     }
 
-    if (now - this.winStartedAt >= SNAPSHOT_INTERVAL_MS && this.winFrames > 0) {
+    if (now - this.winStartedAt >= this.snapshotIntervalMs && this.winFrames > 0) {
       this.latest = this.buildSnapshot();
       for (const listener of this.listeners) listener(this.latest);
       this.resetWindow();

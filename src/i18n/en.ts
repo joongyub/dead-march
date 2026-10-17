@@ -36,6 +36,7 @@ export const en: Record<MessageKey, string> = {
   'settings.lowSpec': 'Low-spec mode',
   'settings.on': 'On',
   'settings.off': 'Off',
+  'battle.no3d': 'This device cannot show the 3D battle',
   'battle.lowSpec': 'Switched to low-spec mode (see Settings)',
 
   'result.powerLeft': 'Army left {n}',

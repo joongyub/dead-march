@@ -31,7 +31,7 @@ function skip(page, until) {
 /** Resumes drawing. Floating words left over from the skipped part would sit frozen on screen; clear them. */
 function wake(page) {
   return page.evaluate(() => {
-    window.__battle.fx.clear();
+    window.__battle.clearEffects();
     window.__dm.game.loop.wake();
   });
 }

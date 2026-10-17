@@ -37,6 +37,7 @@ export const ko = {
   'settings.lowSpec': '저사양 모드',
   'settings.on': '켜기',
   'settings.off': '끄기',
+  'battle.no3d': '이 기기는 3D 화면을 지원하지 않아요',
   'battle.lowSpec': '저사양 모드로 바꿨어요 (설정에서 변경)',
 
   'result.powerLeft': '남은 병력 {n}',

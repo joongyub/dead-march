@@ -19,6 +19,7 @@ import { SettingsScene } from './scenes/SettingsScene';
 import { ShelterScene } from './scenes/ShelterScene';
 import { ShopScene } from './scenes/ShopScene';
 import { TitleScene } from './scenes/TitleScene';
+import { createSharedContext } from './world3d/context';
 
 installMobileGuards();
 
@@ -32,8 +33,14 @@ const minCssWidth = DESIGN_WIDTH / MAX_DPR;
 // Device language until the save (which may hold the player's choice) is loaded.
 setLang(resolveLang('auto'));
 
+// Phaser draws on a WebGL2 context made here (its config types only name the 2D context), so the 3D battle (Three.js) can share the canvas. Without
+// WebGL2 Phaser makes its own context (and the battle says it cannot run).
+const canvas = document.createElement('canvas');
+const context = createSharedContext(canvas);
+
 const game = new Phaser.Game({
-  type: Phaser.AUTO, // WebGL, falling back to Canvas on devices without it
+  type: context ? Phaser.WEBGL : Phaser.AUTO,
+  ...(context ? { canvas, context: context as unknown as CanvasRenderingContext2D } : {}),
   parent: 'game',
   backgroundColor: Colors.background,
   banner: false,

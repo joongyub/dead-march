@@ -70,6 +70,7 @@ export const ko = {
   'word.merge': '합체!',
   'word.split': '분해!',
   'word.smash': '돌파!',
+  'word.kill': '마리 처치!',
   'word.boss': '보스 출현',
   'word.win': '승리!',
   'word.lose': '전멸',

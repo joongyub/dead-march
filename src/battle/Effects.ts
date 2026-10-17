@@ -45,6 +45,14 @@ interface FloatText {
   life: number;
 }
 
+interface Slam {
+  text: Phaser.GameObjects.BitmapText;
+  active: boolean;
+  x: number;
+  y: number;
+  life: number;
+}
+
 /**
  * Effect sprites: a normal-blend pool and an additive pool (glows, rings). Each pool keeps one blend mode
  * and depth for good, because changing a sprite's depth makes the scene re-sort its whole display list.
@@ -59,6 +67,8 @@ export interface EffectPools {
 const DEFAULT_POOLS: EffectPools = { normal: 125, add: 55, decals: 48, texts: 12 };
 const DECAL_LIFE = 5;
 const TEXT_LIFE = 0.9;
+const SLAM_LIFE = 1.5;
+const SLAMS = 3;
 
 /**
  * Pooled battle effects: tracers, sparks, glows, rings, word popups, ground decals and floating numbers.
@@ -68,6 +78,8 @@ export class Effects {
   private readonly fx: Fx[] = [];
   private readonly decals: Decal[] = [];
   private readonly texts: FloatText[] = [];
+  private readonly slams: Slam[] = [];
+  private slamCursor = 0;
   private normalCursor = 0;
   private addCursor = 0;
   private decalCursor = 0;
@@ -108,6 +120,10 @@ export class Effects {
     for (let i = 0; i < this.maxTexts; i++) {
       const text = scene.add.bitmapText(0, 0, NUM_FONT, '', 40).setOrigin(0.5).setVisible(false).setDepth(textDepth);
       this.texts.push({ text, active: false, x: 0, y: 0, life: 0 });
+    }
+    for (let i = 0; i < SLAMS; i++) {
+      const text = scene.add.bitmapText(0, 0, NUM_FONT, '', 120).setOrigin(0.5).setVisible(false).setDepth(textDepth);
+      this.slams.push({ text, active: false, x: 0, y: 0, life: 0 });
     }
   }
 
@@ -247,6 +263,20 @@ export class Effects {
     t.text.setText(value).setFontSize(size).setTint(tint).setPosition(x, y).setAlpha(1).setScale(1.4).setVisible(true);
   }
 
+  /**
+   * A huge number that crashes down onto the screen (zombies killed): falls from three times its size,
+   * shudders on impact, holds, then rises and fades.
+   */
+  slam(x: number, y: number, value: string, tint: number, size = 120): void {
+    const t = this.slams[this.slamCursor];
+    this.slamCursor = (this.slamCursor + 1) % SLAMS;
+    t.active = true;
+    t.x = x;
+    t.y = y;
+    t.life = SLAM_LIFE;
+    t.text.setText(value).setFontSize(size).setTint(tint).setPosition(x, y).setAlpha(0).setScale(3.2).setVisible(true);
+  }
+
   /** Advances all effects. Decals are placed from track coordinates: y = crowdY - (z - distance). */
   update(dt: number, roadX: number, crowdY: number, distance: number, viewBottom: number): void {
     for (const f of this.fx) {
@@ -307,6 +337,25 @@ export class Effects {
       t.text.setScale(p < 0.15 ? 1.4 - p * 2.6 : 1);
       if (p > 0.6) t.text.setAlpha(1 - (p - 0.6) / 0.4);
     }
+
+    for (const t of this.slams) {
+      if (!t.active) continue;
+      t.life -= dt;
+      if (t.life <= 0) {
+        t.active = false;
+        t.text.setVisible(false);
+        continue;
+      }
+      const a = SLAM_LIFE - t.life;
+      // Falls in, overshoots small, bounces back to full size.
+      const s = a < 0.1 ? 3.2 - 2.45 * (a / 0.1) : a < 0.18 ? 0.75 + 0.35 * ((a - 0.1) / 0.08) : a < 0.26 ? 1.1 - 0.1 * ((a - 0.18) / 0.08) : 1;
+      const shudder = a > 0.1 && a < 0.35 ? (1 - (a - 0.1) / 0.25) * 16 : 0;
+      const rise = a > 1 ? (a - 1) * 120 : 0;
+      t.text
+        .setScale(s)
+        .setPosition(t.x + (Math.random() - 0.5) * shudder, t.y + (Math.random() - 0.5) * shudder - rise)
+        .setAlpha(a < 0.06 ? a / 0.06 : a > 1.05 ? Math.max(0, 1 - (a - 1.05) / 0.45) : 1);
+    }
   }
 
   clear(): void {
@@ -319,6 +368,10 @@ export class Effects {
       d.img.setVisible(false);
     }
     for (const t of this.texts) {
+      t.active = false;
+      t.text.setVisible(false);
+    }
+    for (const t of this.slams) {
       t.active = false;
       t.text.setVisible(false);
     }

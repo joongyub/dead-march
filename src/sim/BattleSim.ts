@@ -11,12 +11,23 @@ import {
   type ZombieKind,
 } from './types';
 
-/** Distance ahead of the crowd's center where melee contact happens. */
+/** Distance ahead of the crowd's center where the army runs into a barricade. */
 export const CONTACT = 70;
+/**
+ * Gap between the army's front row and the line zombies never cross: zombies that get that close are
+ * shot down there point-blank, and each one takes some of the army with it. Nothing ever touches.
+ */
+export const FRONT_GAP = 75;
 const CROWD_MAX_SPEED = 1700; // sideways, units/s
 const DEFAULT_SPEED = 420;
-const CLASH_SPEED_FACTOR = 0.12;
+const HOLD_SPEED_FACTOR = 0.12;
 const BOSS_SPAWN_AHEAD = 1150;
+/** Passing a gate fires a volley of shells at the nearest zombie group this far ahead. */
+const SALVO_RANGE = 1900;
+/** Seconds from firing to impact. */
+export const SALVO_FLIGHT = 0.75;
+/** Zombie HP a volley deals per survivor-equivalent of army power. */
+const SALVO_DAMAGE = 0.3;
 
 export interface SimHorde {
   id: number;
@@ -29,8 +40,21 @@ export interface SimHorde {
   count0: number;
   hpAcc: number;
   active: boolean;
-  engaged: boolean;
+  /** Held at the army's front line, being shot down there. */
+  held: boolean;
   aggro: boolean;
+}
+
+/** Shells fired when the army passes a gate; the damage lands SALVO_FLIGHT seconds later. */
+export interface SimSalvo {
+  horde: SimHorde;
+  /** Where the horde's front was when the shells were fired. */
+  z: number;
+  damage: number;
+  /** Simulation time of impact. */
+  at: number;
+  /** Shells drawn: grows with the army. */
+  shells: number;
 }
 
 export interface SimGate {
@@ -68,9 +92,12 @@ export interface SimBoss {
 export type SimEvent =
   | { type: 'gate'; gate: SimGate; side: 0 | 1; powerBefore: number }
   | { type: 'merge'; tier: number; groups: number }
-  | { type: 'hordeCleared'; horde: SimHorde; byMelee: boolean }
+  | { type: 'hordeCleared'; horde: SimHorde; atLine: boolean }
   | { type: 'hordeMissed'; horde: SimHorde }
-  | { type: 'clash'; horde: SimHorde }
+  /** Zombies reached the front line. */
+  | { type: 'frontLine'; horde: SimHorde }
+  | { type: 'salvo'; salvo: SimSalvo }
+  | { type: 'salvoHit'; salvo: SimSalvo }
   | { type: 'barricadeSmashed'; barricade: SimBarricade }
   | { type: 'barricadeBroken'; barricade: SimBarricade }
   | { type: 'bossStart'; boss: SimBoss }
@@ -98,6 +125,8 @@ export interface BattleRules {
 
 export interface BattleStats {
   zombiesKilled: number;
+  /** Of those, how many got to the front line first (each cost the army). */
+  killedAtLine: number;
   /** Power lost to zombies, barricades and the boss (not to gate choices). */
   damageTaken: number;
   gatesTaken: number;
@@ -117,7 +146,9 @@ export class BattleSim {
   readonly boss: SimBoss;
   /** Discrete happenings since the view last drained them. */
   readonly events: SimEvent[] = [];
-  readonly stats: BattleStats = { zombiesKilled: 0, damageTaken: 0, gatesTaken: 0, peakPower: 0, time: 0 };
+  readonly stats: BattleStats = { zombiesKilled: 0, killedAtLine: 0, damageTaken: 0, gatesTaken: 0, peakPower: 0, time: 0 };
+  /** Volleys in the air. */
+  readonly salvos: SimSalvo[] = [];
 
   phase: Phase = 'run';
   distance = 0;
@@ -156,7 +187,7 @@ export class BattleSim {
         if (!kind) throw new Error(`Unknown zombie kind "${ev.kind}"`);
         this.hordes.push({
           id: id++, kindId: ev.kind, kind, z: ev.z, x0, x1, count: ev.count, count0: ev.count,
-          hpAcc: 0, active: true, engaged: false, aggro: false,
+          hpAcc: 0, active: true, held: false, aggro: false,
         });
       } else {
         this.barricades.push({ id: id++, z: ev.z, x0, x1, hp: ev.hp, hp0: ev.hp, active: true, engaged: false });
@@ -174,6 +205,11 @@ export class BattleSim {
   /** Crowd radius in track units; grows with the number of units shown. */
   get crowdRadius(): number {
     return Math.min(150, 34 + 6.5 * Math.sqrt(Math.min(this.army.units, 120)));
+  }
+
+  /** How far ahead of the crowd's center zombies are stopped (the drawn front row plus FRONT_GAP). */
+  get frontLine(): number {
+    return this.crowdRadius + FRONT_GAP;
   }
 
   /** Horizontal half-extent used for overlap tests (a little tighter than the drawn crowd). */
@@ -194,23 +230,24 @@ export class BattleSim {
     this.stats.time += dt;
     this.moveCrowd(dt);
 
-    let clashing = false;
+    let holding = false;
     if (this.phase === 'run') {
       this.distance += this.speed * dt;
       this.passGates();
-      clashing = this.updateHordes(dt) || clashing;
-      clashing = this.updateBarricades(dt) || clashing;
+      holding = this.updateHordes(dt) || holding;
+      holding = this.updateBarricades(dt) || holding;
       if (this.distance >= this.level.length) this.startBoss();
     } else if (this.phase === 'boss') {
       this.updateHordes(dt);
       this.updateBoss(dt);
     }
 
+    this.landSalvos();
     this.shoot(dt);
     this.checkMerges();
 
-    const targetSpeed = this.phase === 'run' ? (clashing ? this.baseSpeed * CLASH_SPEED_FACTOR : this.baseSpeed) : 0;
-    this.speed += (targetSpeed - this.speed) * Math.min(1, dt * (clashing ? 14 : 3));
+    const targetSpeed = this.phase === 'run' ? (holding ? this.baseSpeed * HOLD_SPEED_FACTOR : this.baseSpeed) : 0;
+    this.speed += (targetSpeed - this.speed) * Math.min(1, dt * (holding ? 14 : 3));
 
     const power = this.army.power;
     if (power > this.stats.peakPower) this.stats.peakPower = power;
@@ -246,51 +283,91 @@ export class BattleSim {
       this.army.apply(side === 0 ? gate.left : gate.right);
       this.stats.gatesTaken++;
       this.events.push({ type: 'gate', gate, side, powerBefore });
+      this.fireSalvo();
+    }
+  }
+
+  /** Every gate passed sends shells at the nearest zombie group ahead (in the crowd's lane first). */
+  private fireSalvo(): void {
+    let target: SimHorde | null = null;
+    let inLane = false;
+    for (const h of this.hordes) {
+      const ahead = h.z - this.distance;
+      if (!h.active || ahead < 0 || ahead > SALVO_RANGE) continue;
+      const lane = this.overlaps(h.x0, h.x1);
+      if (!target || (lane && !inLane) || (lane === inLane && h.z < target.z)) {
+        target = h;
+        inLane = lane;
+      }
+    }
+    const power = this.army.power;
+    if (!target || power <= 0) return;
+    const salvo: SimSalvo = {
+      horde: target,
+      z: target.z,
+      damage: power * SALVO_DAMAGE * this.dpsMultiplier,
+      at: this.stats.time + SALVO_FLIGHT,
+      shells: Math.min(12, 3 + Math.floor(Math.sqrt(power))),
+    };
+    this.salvos.push(salvo);
+    this.events.push({ type: 'salvo', salvo });
+  }
+
+  private landSalvos(): void {
+    for (let i = this.salvos.length - 1; i >= 0; i--) {
+      const salvo = this.salvos[i];
+      if (salvo.at > this.stats.time) continue;
+      this.salvos.splice(i, 1);
+      this.events.push({ type: 'salvoHit', salvo });
+      if (salvo.horde.active) this.damageHorde(salvo.horde, salvo.damage);
     }
   }
 
   private updateHordes(dt: number): boolean {
-    let clashing = false;
+    let holding = false;
+    const line = this.frontLine;
     for (const h of this.hordes) {
       if (!h.active) continue;
       const ahead = h.z - this.distance;
       if (!h.aggro && ahead < h.kind.aggroRange) h.aggro = true;
 
       const lane = this.overlaps(h.x0, h.x1);
-      if (h.engaged && !lane) h.engaged = false; // crowd slipped out sideways mid-fight
+      if (h.held && !lane) h.held = false; // crowd slipped out sideways
 
-      if (!h.engaged && h.aggro && this.phase === 'run') {
+      if (!h.held && h.aggro && this.phase === 'run') {
         // Zombies shamble toward the crowd, but only within their own lane.
         h.z -= h.kind.speed * dt;
       }
-      if (!h.engaged && lane && h.z - this.distance <= CONTACT && h.z - this.distance > -CONTACT) {
-        h.engaged = true;
-        this.events.push({ type: 'clash', horde: h });
+      if (!h.held && lane && h.z - this.distance <= line && h.z - this.distance > -line) {
+        h.held = true;
+        this.events.push({ type: 'frontLine', horde: h });
       }
-      if (h.engaged) {
-        h.z = this.distance + CONTACT;
-        clashing = true;
-        this.meleeHorde(h, dt);
+      if (h.held) {
+        h.z = this.distance + line;
+        holding = true;
+        this.breach(h, dt);
       } else if (h.z - this.distance < -260) {
         h.active = false;
         this.events.push({ type: 'hordeMissed', horde: h });
       }
     }
-    return clashing;
+    return holding;
   }
 
-  private meleeHorde(h: SimHorde, dt: number): void {
-    const clashTime = 0.45 + 0.18 * Math.log10(h.count0 + 1);
-    const kills = Math.min(h.count, Math.max(1, Math.ceil((h.count0 * dt) / clashTime)));
+  /** Zombies at the front line lunge at the army and are shot down there; each one takes its power with it. */
+  private breach(h: SimHorde, dt: number): void {
+    const holdTime = 0.45 + 0.18 * Math.log10(h.count0 + 1);
+    const kills = Math.min(h.count, Math.max(1, Math.ceil((h.count0 * dt) / holdTime)));
     h.count -= kills;
     this.stats.zombiesKilled += kills;
+    this.stats.killedAtLine += kills;
     let loss = kills * h.kind.power;
     if (h.kind.blast) loss += kills * h.kind.blast;
     this.stats.damageTaken += this.army.damage(loss);
     if (h.count <= 0) {
       h.active = false;
-      h.engaged = false;
-      this.events.push({ type: 'hordeCleared', horde: h, byMelee: true });
+      h.held = false;
+      this.events.push({ type: 'hordeCleared', horde: h, atLine: true });
     }
   }
 
@@ -336,7 +413,8 @@ export class BattleSim {
   private updateBoss(dt: number): void {
     const boss = this.boss;
     if (!boss.active) return;
-    const reach = CONTACT + boss.kind.radius * 0.5;
+    // The boss stops short of the army too and smashes the ground; the shock wave does the damage.
+    const reach = this.frontLine + boss.kind.radius * 0.5;
     if (boss.z - this.distance > reach) {
       boss.z = Math.max(this.distance + reach, boss.z - boss.kind.speed * dt);
       boss.attacking = false;
@@ -396,8 +474,8 @@ export class BattleSim {
     }
     if (h.count <= 0) {
       h.active = false;
-      h.engaged = false;
-      this.events.push({ type: 'hordeCleared', horde: h, byMelee: false });
+      h.held = false;
+      this.events.push({ type: 'hordeCleared', horde: h, atLine: false });
     }
   }
 

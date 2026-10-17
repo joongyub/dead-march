@@ -27,6 +27,12 @@ export class Hud {
   private readonly powerBg: Phaser.GameObjects.NineSlice;
   private readonly powerIcon: Phaser.GameObjects.Image;
   private readonly powerText: Phaser.GameObjects.BitmapText;
+  /** Zombies killed so far, at the right end of the tier row. */
+  private readonly killIcon: Phaser.GameObjects.Image;
+  private readonly killText: Phaser.GameObjects.BitmapText;
+  private killValue = -1;
+  private killPop = 0;
+  private killX = 0;
   private powerValue = -1;
   private powerPop = 0;
   private bossMode = false;
@@ -57,6 +63,8 @@ export class Hud {
     this.powerBg = scene.add.nineslice(0, 0, ATLAS, 'pill', 140, 56, 28, 28, 0, 0).setTint(0x0b0f14).setAlpha(0.7).setDepth(Depth.Labels);
     this.powerIcon = scene.add.image(0, 0, ATLAS, 'i_people').setScale(0.62).setTint(0x8fd8ff).setDepth(Depth.Labels);
     this.powerText = scene.add.bitmapText(0, 0, NUM_FONT, '0', 44).setOrigin(0, 0.5).setDepth(Depth.Labels);
+    this.killIcon = scene.add.image(0, 0, ATLAS, 'i_skull').setScale(0.7).setTint(0xff8a5a).setDepth(Depth.Hud);
+    this.killText = scene.add.bitmapText(0, 0, NUM_FONT, '0', 36).setOrigin(1, 0.5).setTint(0xffd27a).setDepth(Depth.Hud);
     this.pauseButton = new IconButton(scene, 0, 0, 'i_pause', onPause, { size: 84 });
     this.pauseButton.setDepth(Depth.Hud);
   }
@@ -77,6 +85,13 @@ export class Hud {
       this.tierIcons[i].setPosition(x, rowY);
       this.tierTexts[i].setPosition(x + 26, rowY + 2);
     }
+    this.killX = width - 30;
+    this.killText.setPosition(this.killX, rowY + 2);
+    this.placeKillIcon();
+  }
+
+  private placeKillIcon(): void {
+    this.killIcon.setPosition(this.killX - this.killText.width - 28, this.killText.y - 2);
   }
 
   /** Where the HUD shows tier `i` (the tutorial points at it). */
@@ -108,6 +123,19 @@ export class Hud {
       const on = counts[i] > 0;
       this.tierIcons[i].setAlpha(on ? 1 : 0.3);
       this.tierTexts[i].setAlpha(on ? 1 : 0.35);
+    }
+
+    const kills = sim.stats.zombiesKilled;
+    if (kills !== this.killValue) {
+      if (this.killValue >= 0) this.killPop = 1;
+      this.killValue = kills;
+      this.killText.setText(formatCount(kills));
+      this.placeKillIcon();
+    }
+    if (this.killPop > 0) {
+      this.killPop = Math.max(0, this.killPop - dt * 4);
+      this.killText.setScale(1 + this.killPop * 0.35);
+      this.killIcon.setScale(0.7 * (1 + this.killPop * 0.3));
     }
 
     const power = sim.army.power;

@@ -23,6 +23,9 @@ export interface RunResult {
   damageTaken: number;
   time: number;
   bossHpLeft: number;
+  kills: number;
+  /** Zombies that reached the front line before dying (the rest were shot at range). */
+  killedAtLine: number;
 }
 
 /**
@@ -50,6 +53,8 @@ export function runPlan(
     damageTaken: sim.stats.damageTaken,
     time: sim.stats.time,
     bossHpLeft: sim.boss.hp,
+    kills: sim.stats.zombiesKilled,
+    killedAtLine: sim.stats.killedAtLine,
   };
 }
 

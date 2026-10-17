@@ -242,9 +242,22 @@ for (let n = 1; n <= 20; n++) {
     if (winRate(scaled(draft, m), mods) >= target) lo = m;
     else hi = m;
   }
-  const level = scaled(draft, lo);
+  let best = lo;
+  let bestRate = winRate(scaled(draft, lo), mods);
+  // Win rate is not strictly monotonic in m (a bigger horde can die to a gate volley that a smaller one
+  // outlives), so a search that lands far off the target falls back to scanning.
+  if (Math.abs(bestRate - target) > 0.08) {
+    for (let m = 0.3; m <= 4; m += 0.05) {
+      const rate = winRate(scaled(draft, m), mods);
+      if (Math.abs(rate - target) < Math.abs(bestRate - target)) {
+        best = m;
+        bestRate = rate;
+      }
+    }
+  }
+  const level = scaled(draft, best);
   levels.push(level);
-  console.log(`level ${n}: m=${lo.toFixed(2)} winRate=${winRate(level, mods).toFixed(2)} target=${target}`);
+  console.log(`level ${n}: m=${best.toFixed(2)} winRate=${winRate(level, mods).toFixed(2)} target=${target}`);
 }
 
 writeFileSync('src/data/levels.json', `${JSON.stringify({ levels }, null, 1)}\n`);

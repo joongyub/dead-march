@@ -69,6 +69,7 @@ export const en: Record<MessageKey, string> = {
   'word.merge': 'MERGE!',
   'word.split': 'SPLIT!',
   'word.smash': 'SMASH!',
+  'word.kill': 'KILLED!',
   'word.boss': 'BOSS!',
   'word.win': 'VICTORY!',
   'word.lose': 'WIPED OUT',

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Frame, buildFxTexture } from './fxAtlas';
 import { debrisModel } from './models';
+import { writeTransform } from './transform';
 
 const VERT = /* glsl */ `
 attribute vec3 iPos;
@@ -378,11 +379,6 @@ class Debris {
   private readonly colors: Float32Array;
   private cursor = 0;
   active = 0;
-  private readonly m = new THREE.Matrix4();
-  private readonly q = new THREE.Quaternion();
-  private readonly e = new THREE.Euler();
-  private readonly pos = new THREE.Vector3();
-  private readonly scl = new THREE.Vector3();
 
   constructor(capacity: number) {
     this.n = capacity;
@@ -472,11 +468,7 @@ class Debris {
       this.r[i3 + 2] += this.w[i3 + 2] * dt;
       // Shrinks away at the end of its life.
       const fade = Math.min(1, this.life[i] / 0.4);
-      this.q.setFromEuler(this.e.set(this.r[i3], this.r[i3 + 1], this.r[i3 + 2]));
-      this.pos.set(this.p[i3], this.p[i3 + 1], this.p[i3 + 2]);
-      this.scl.set(this.s[i3] * fade, this.s[i3 + 1] * fade, this.s[i3 + 2] * fade);
-      this.m.compose(this.pos, this.q, this.scl);
-      this.m.toArray(arr, n * 16);
+      writeTransform(arr, n * 16, this.p[i3], this.p[i3 + 1], this.p[i3 + 2], this.r[i3], this.r[i3 + 1], this.r[i3 + 2], this.s[i3] * fade, this.s[i3 + 1] * fade, this.s[i3 + 2] * fade);
       col[n * 3] = this.colors[i3];
       col[n * 3 + 1] = this.colors[i3 + 1];
       col[n * 3 + 2] = this.colors[i3 + 2];
@@ -697,6 +689,29 @@ export class Fx3D {
     this.soft.a0[i] = 0.85;
     this.soft.vy[i] = 30;
     if (Math.random() < 0.6) this.glow(x, y, z, heavy ? 40 : 22, 0xfff0c0, 0.06);
+  }
+
+  /** A jet of blood from a wound, streaking out along (dirX, dirZ) and up (0, 0: straight up, a fountain). */
+  spurt(x: number, y: number, z: number, blood: number, dirX: number, dirZ: number, scale: number): void {
+    const up = dirX === 0 && dirZ === 0;
+    for (let k = 0; k < this.n(7); k++) {
+      const i = this.soft.spawn(x, y, z, rand(0.45, 0.75), rand(4, 7) * scale, blood, Frame.Drop);
+      const v = rand(160, 380) * scale;
+      const a = Math.random() * Math.PI * 2;
+      const spread = up ? 0.35 : 0.45;
+      this.soft.vx[i] = (dirX + Math.cos(a) * spread) * v;
+      this.soft.vz[i] = (dirZ + Math.sin(a) * spread) * v;
+      this.soft.vy[i] = (up ? rand(1.4, 2.2) : rand(0.5, 1.2)) * v;
+      this.soft.grav[i] = 1500;
+      this.soft.flags[i] = STREAK;
+      this.soft.tail[i] = 0.03;
+      this.soft.a1[i] = 0.7;
+    }
+    const i = this.soft.spawn(x + dirX * 10, y, z + dirZ * 10, 0.35, 18 * scale, blood, Frame.Smoke);
+    this.soft.s1[i] = 60 * scale;
+    this.soft.a0[i] = 0.6;
+    this.soft.vx[i] = dirX * 90;
+    this.soft.vz[i] = dirZ * 90;
   }
 
   /** Blood spray and a splat on the road where something died. */
